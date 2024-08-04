@@ -21,8 +21,11 @@
 <script>window.SwissGL || document.write('<script src="https://cdn.jsdelivr.net/gh/google/swissgl@main/swissgl.js">\x3C/script>')</script>
 
 <script>
-    let glsl, cells, targetMass;
     let pause = false;
+    let glsl, cells, targetMass;
+    let perceptDists, perceptSharp;
+    let weights1, bias1;
+    let weights2, bias2;
 
     const cellsTargetParams = {
         scale: 1 / 6,
@@ -30,10 +33,6 @@
         story: 2,
         tag: "cells",
     };
-
-    const kernels = {};
-    const weights = {};
-    const bias = [];
 
     function setup() {
         const canvas = createCanvas(windowWidth, windowHeight, WEBGL);
@@ -43,33 +42,60 @@
             FP: "hash(ivec3(I, seed)), 1"
         }, { ...cellsTargetParams });
 
-        initParams();
+        initWeights();
+        frameRate(60);
+
+        addEventListener("contextmenu", e => {
+            e.preventDefault();
+        });
+        addEventListener("mousedown", e => {
+            if (e.detail > 1) {
+                e.preventDefault();
+            }
+        });
+        addEventListener("keydown", e => {
+            if (e.key === "Tab" || e.key === "Alt" || e.key === " ") {
+                e.preventDefault();
+            }
+        });
     };
 
-    function initParams() {
-        for (const c of "rgb") {
-            kernels[c] = {
-                centerVals: [],
-                controlDists: [],
-                controlVals: [],
-            };
-            for (let i = 0; i < 4; i++) {
-                kernels[c].centerVals.push(random(-1, 1) * 1);
-                kernels[c].controlDists.push(random(0.1, 0.9));
-                kernels[c].controlVals.push(random(-1, 1) * 1);
-            }
-
-            weights[c] = [];
-            for (let i = 0; i < 3 * 4; i++) {
-                weights[c].push(random(-1, 1));
-            }
-            weights[c] = new Float32Array(weights[c]);
-
-            bias.length = 0;
-            for (let i = 0; i < 4; i++) {
-                bias.push(random());
-            }
+    function initWeights() {
+        perceptDists = [];
+        for (let i = 0; i < 3 * 3; i++) {
+            perceptDists.push(random());
         }
+        perceptDists = new Float32Array(perceptDists);
+
+        perceptSharp = [];
+        for (let i = 0; i < 3 * 3; i++) {
+            perceptSharp.push(random(4, 16));
+        }
+        perceptSharp = new Float32Array(perceptSharp);
+
+        weights1 = [];
+        for (let i = 0; i < 9 * 6; i++) {
+            weights1.push(random(-1, 1) * 10);
+        }
+        weights1 = new Float32Array(weights1);
+
+        bias1 = [];
+        for (let i = 0; i < 6; i++) {
+            bias1.push(random());
+        }
+        bias1 = new Float32Array(bias1);
+
+        weights2 = [];
+        for (let i = 0; i < 6 * 3; i++) {
+            weights2.push(random(-1, 1) * 10);
+        }
+        weights2 = new Float32Array(weights2);
+
+        bias2 = [];
+        for (let i = 0; i < 3; i++) {
+            bias2.push(random());
+        }
+        bias2 = new Float32Array(bias2);
     }
 
     function keyPressed() {
@@ -80,7 +106,7 @@
             step();
         } else if (key === "f") {
             glsl({ FP: "0" }, cells);
-            initParams();
+            initWeights();
             step();
         } else if (key === "ArrowRight") {
             step();
@@ -90,145 +116,75 @@
     function step() {
         targetMass = glsl({
             cells: cells[0],
-
-            rCenterVals: kernels.r.centerVals,
-            gCenterVals: kernels.g.centerVals,
-            bCenterVals: kernels.b.centerVals,
-            rControlDists: kernels.r.controlDists,
-            gControlDists: kernels.g.controlDists,
-            bControlDists: kernels.b.controlDists,
-            rControlVals: kernels.r.controlVals,
-            gControlVals: kernels.g.controlVals,
-            bControlVals: kernels.b.controlVals,
-            rW: weights.r,
-            gW: weights.g,
-            bW: weights.b,
-            bias,
-
+            perceptDists,
+            perceptSharp,
+            w1: weights1,
+            bias1,
+            w2: weights2,
+            bias2,
             FP: `
-            uniform vec4 rW[3];
-            uniform vec4 gW[3];
-            uniform vec4 bW[3];
+            uniform mat3 perceptDists;
+            uniform mat3 perceptSharp;
+            uniform vec3 w1[18];
+            uniform vec3 bias1[2];
+            uniform vec3 w2[6];
+            uniform vec3 bias2;
 
             void fragment() {
-                // FOut = vec4(rW[0].xyz, 1.0);
-                // return;
-
-                vec4 rK = vec4(0);
-                vec4 gK = vec4(0);
-                vec4 bK = vec4(0);
-                float totalContrib = 0.0;
+                mat3 percept;
+                mat3 perceptDivisor;
 
                 for (int k = 0; k < 81; k++) {
                     ivec2 offset = ivec2(k % 9 - 4, k / 9 - 4);
                     if (offset == ivec2(0)) { continue; }
+                    ivec2 neighborPos = (
+                        I + offset + cells_size()
+                    ) % cells_size();
+
                     float dist = length(vec2(offset)) / 5.0;
-                    float contrib = dist <= 1.0 ? 1.0 : 0.0;
-                    ivec2 neighborPos = (I + offset + cells_size()) % cells_size();
+                    float circleMask = dist <= 1.0 ? 1.0 : 0.0;
+                    mat3 shiftedDists = dist - perceptDists;
+                    mat3 absDists = mat3(
+                        abs(shiftedDists[0]),
+                        abs(shiftedDists[1]),
+                        abs(shiftedDists[2])
+                    );
+                    mat3 contribution = mat3(
+                        exp(-perceptSharp[0] * absDists[0]),
+                        exp(-perceptSharp[1] * absDists[1]),
+                        exp(-perceptSharp[2] * absDists[2])
+                    ) * circleMask;
+                    perceptDivisor += contribution;
 
-                    rK += vec4(
-                        cells(neighborPos).r * (
-                            dist < rControlDists[0]
-                            ? mix(rCenterVals[0], rControlVals[0], dist / rControlDists[0])
-                            : mix(rControlVals[0], 0.0, (dist - rControlDists[0]) / (1.0 - rControlDists[0]))
-                        ),
-                        cells(neighborPos).r * (
-                            dist < rControlDists[1]
-                            ? mix(rCenterVals[1], rControlVals[1], dist / rControlDists[1])
-                            : mix(rControlVals[1], 0.0, (dist - rControlDists[0]) / (1.0 - rControlDists[1]))
-                        ),
-                        cells(neighborPos).r * (
-                            dist < rControlDists[2]
-                            ? mix(rCenterVals[2], rControlVals[2], dist / rControlDists[2])
-                            : mix(rControlVals[2], 0.0, (dist - rControlDists[2]) / (1.0 - rControlDists[2]))
-                        ),
-                        cells(neighborPos).r * (
-                            dist < rControlDists[3]
-                            ? mix(rCenterVals[3], rControlVals[3], dist / rControlDists[3])
-                            : mix(rControlVals[3], 0.0, (dist - rControlDists[3]) / (1.0 - rControlDists[3]))
-                        )
-                    ) * contrib;
-
-                    gK += vec4(
-                        cells(neighborPos).g * (
-                            dist < gControlDists[0]
-                            ? mix(gCenterVals[0], gControlVals[0], dist / gControlDists[0])
-                            : mix(gControlVals[0], 0.0, (dist - gControlDists[0]) / (1.0 - gControlDists[0]))
-                        ),
-                        cells(neighborPos).g * (
-                            dist < gControlDists[1]
-                            ? mix(gCenterVals[1], gControlVals[1], dist / gControlDists[1])
-                            : mix(gControlVals[1], 0.0, (dist - gControlDists[0]) / (1.0 - gControlDists[1]))
-                        ),
-                        cells(neighborPos).g * (
-                            dist < gControlDists[2]
-                            ? mix(gCenterVals[2], gControlVals[2], dist / gControlDists[2])
-                            : mix(gControlVals[2], 0.0, (dist - gControlDists[2]) / (1.0 - gControlDists[2]))
-                        ),
-                        cells(neighborPos).g * (
-                            dist < gControlDists[3]
-                            ? mix(gCenterVals[3], gControlVals[3], dist / gControlDists[3])
-                            : mix(gControlVals[3], 0.0, (dist - gControlDists[3]) / (1.0 - gControlDists[3]))
-                        )
-                    ) * contrib;
-
-
-                    bK += vec4(
-                        cells(neighborPos).b * (
-                            dist < bControlDists[0]
-                            ? mix(bCenterVals[0], bControlVals[0], dist / bControlDists[0])
-                            : mix(bControlVals[0], 0.0, (dist - bControlDists[0]) / (1.0 - bControlDists[0]))
-                        ),
-                        cells(neighborPos).b * (
-                            dist < bControlDists[1]
-                            ? mix(bCenterVals[1], bControlVals[1], dist / bControlDists[1])
-                            : mix(bControlVals[1], 0.0, (dist - bControlDists[0]) / (1.0 - bControlDists[1]))
-                        ),
-                        cells(neighborPos).b * (
-                            dist < bControlDists[2]
-                            ? mix(bCenterVals[2], bControlVals[2], dist / bControlDists[2])
-                            : mix(bControlVals[2], 0.0, (dist - bControlDists[2]) / (1.0 - bControlDists[2]))
-                        ),
-                        cells(neighborPos).b * (
-                            dist < bControlDists[3]
-                            ? mix(bCenterVals[3], bControlVals[3], dist / bControlDists[3])
-                            : mix(bControlVals[3], 0.0, (dist - bControlDists[3]) / (1.0 - bControlDists[3]))
-                        )
-                    ) * contrib;
-
-                    totalContrib += contrib;
+                    vec3 rgb = cells(neighborPos).rgb;
+                    percept += mat3(
+                        contribution[0] * rgb,
+                        contribution[1] * rgb,
+                        contribution[2] * rgb
+                    );
                 }
-                // FOut = vec4(rK.x, gK.x, bK.x, 1.0);
 
-                // rK /= totalContrib;
-                // gK /= totalContrib;
-                // bK /= totalContrib;
+                percept /= perceptDivisor;
 
-                float rTarget = (
-                    bias.r
-                    + rW[0].x * rK.x + rW[0].y * rK.y + rW[0].z * rK.z + rW[0].w * rK.w
-                    + rW[1].x * gK.x + rW[1].y * gK.y + rW[1].z * gK.z + rW[1].w * gK.w
-                    + rW[2].x * bK.x + rW[2].y * bK.y + rW[2].z * bK.z + rW[2].w * bK.w
-                );
-                float gTarget = (
-                    bias.g
-                    + gW[0].x * rK.x + gW[0].y * rK.y + gW[0].z * rK.z + gW[0].w * rK.w
-                    + gW[1].x * gK.x + gW[1].y * gK.y + gW[1].z * gK.z + gW[1].w * gK.w
-                    + gW[2].x * bK.x + gW[2].y * bK.y + gW[2].z * bK.z + gW[2].w * bK.w
-                );
-                float bTarget = (
-                    bias.b
-                    + bW[0].x * rK.x + bW[0].y * rK.y + bW[0].z * rK.z + bW[0].w * rK.w
-                    + bW[1].x * gK.x + bW[1].y * gK.y + bW[1].z * gK.z + bW[1].w * gK.w
-                    + bW[2].x * bK.x + bW[2].y * bK.y + bW[2].z * bK.z + bW[2].w * bK.w
-                );
+                mat3 p = percept;
 
-                vec3 targetMass = clamp(
-                    vec3(rTarget, gTarget, bTarget),
-                    0.0,
-                    1.0
-                ); 
-                targetMass += vec3(0.5);
+                vec3 h0 = max(vec3(0), bias1[0] + vec3(
+                    dot(w1[0], p[0]) + dot(w1[1], p[1]) + dot(w1[2], p[2]),
+                    dot(w1[3], p[0]) + dot(w1[4], p[1]) + dot(w1[5], p[2]),
+                    dot(w1[6], p[0]) + dot(w1[7], p[1]) + dot(w1[8], p[2])
+                ));
+                vec3 h1 = max(vec3(0), bias1[1] + vec3(
+                    dot(w1[9], p[0]) + dot(w1[10], p[1]) + dot(w1[11], p[2]),
+                    dot(w1[12], p[0]) + dot(w1[13], p[1]) + dot(w1[14], p[2]),
+                    dot(w1[15], p[0]) + dot(w1[16], p[1]) + dot(w1[17], p[2])
+                ));
+
+                vec3 targetMass = vec3(
+                    bias2.r + dot(w2[0], h0) + dot(w2[1], h1),
+                    bias2.g + dot(w2[2], h0) + dot(w2[3], h1),
+                    bias2.b + dot(w2[4], h0) + dot(w2[5], h1)
+                );
+                targetMass = clamp(targetMass, 0.0, 1.0);
                 FOut = vec4(targetMass, 1.0);
             }
         `}, {

@@ -241,8 +241,42 @@
         `}, { ...cellsTargetParams });
     }
 
+    function interact() {
+        if (mouseIsPressed) {
+            const aspect = windowWidth / windowHeight;
+            const ww = windowWidth, wh = windowHeight;
+            let mxSquare, mySquare;
+            if (aspect > 1) {
+                mxSquare = (ww / 2 + (mouseX - ww / 2) * aspect) / ww;
+                mySquare = 1 - mouseY / wh;
+            } else {
+                mxSquare = mouseX / ww;
+                mySquare = 1 - (wh / 2 + (mouseY - wh / 2) / aspect) / wh;
+            }
+            glsl({
+                seed: Math.random() * 12417,
+                mouseSquare: [mxSquare, mySquare],
+                cells: cells[1],
+                FP: `
+                vec2 size = vec2(cells_size());
+                float aspect = size.x / size.y;
+                vec2 uvSquare = (
+                    aspect > 1.0
+                    ? vec2(0.5 + (UV.x - 0.5) * aspect, UV.y)
+                    : vec2(UV.x, 0.5 + (UV.y - 0.5) / aspect)
+                );
+                if (distance(uvSquare, mouseSquare) < 0.1) {
+                    FOut = vec4(hash(ivec3(I, seed)), 1);
+                } else {
+                    FOut = cells(I);
+                }
+            `}, cells[0]);
+        }
+    }
+
     function draw() {
         if (!pause) { step(); }
+        interact();
 
         glsl({
             cells: cells[0],

@@ -1,17 +1,13 @@
 <title>cells</title>
 <link rel="icon" type="image/png" href="favicon.png" />
 <style>
-    html,
-    body {
+    html, body {
         padding: 0;
         margin: 0;
         overflow: hidden;
         background-color: #262626;
     }
-
-    canvas {
-        display: block;
-    }
+    canvas { display: block; }
 </style>
 
 <!-- fallback to cdn -->
@@ -22,6 +18,7 @@
 
 <script>
     let pause = false;
+    let canvas;
     let glsl, cells, targetMass;
     let perceptDists, perceptSharp;
     let weights1, bias1;
@@ -35,7 +32,7 @@
     };
 
     function setup() {
-        const canvas = createCanvas(windowWidth, windowHeight, WEBGL);
+        canvas = createCanvas(windowWidth, windowHeight, WEBGL);
         glsl = SwissGL(canvas.elt);
         cells = glsl({
             seed: Math.random() * 12417,
@@ -277,9 +274,16 @@
             cells: cells[0],
             FP: "cells(UV)",
         });
+        
+        if ( canvas.elt.windowWidth !== windowWidth
+        || canvas.elt.windowHeight !== windowWidth ) {
+            // sometimes resize event gets missed
+            resizeCanvas(windowWidth, windowHeight);
+        }
     };
 
     function windowResized() {
+        // less flicker if it's attempted here first
         resizeCanvas(windowWidth, windowHeight);
     };
 </script>

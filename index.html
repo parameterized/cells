@@ -32,17 +32,15 @@
     };
 
     function setup() {
-        setTimeout(() => {
-            canvas = createCanvas(windowWidth, windowHeight, WEBGL);
-            glsl = SwissGL(canvas.elt);
-            cells = glsl({
-                seed: Math.random() * 12417,
-                FP: "hash(ivec3(I, seed)), 1"
-            }, { ...cellsTargetParams });
+        canvas = createCanvas(windowWidth, windowHeight, WEBGL);
+        glsl = SwissGL(canvas.elt);
+        cells = glsl({
+            seed: Math.random() * 12417,
+            FP: "hash(ivec3(I, seed)), 1"
+        }, { ...cellsTargetParams });
 
-            initWeights();
-            frameRate(60);
-        }, 100);
+        initWeights();
+        frameRate(60);
 
         addEventListener("contextmenu", e => {
             e.preventDefault();
@@ -52,6 +50,10 @@
                 e.preventDefault();
             }
         });
+
+        setTimeout(() => {
+            windowResized();
+        }, 100);
     };
 
     function initWeights() {
@@ -269,7 +271,6 @@
     }
 
     function draw() {
-        if (!canvas) { return; }
         if (!pause) { step(); }
         interact();
 
@@ -280,6 +281,6 @@
     };
 
     function windowResized() {
-        resizeCanvas(windowWidth, windowHeight);
+        resizeCanvas(window.innerWidth, window.innerHeight);
     };
 </script>

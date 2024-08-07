@@ -32,15 +32,17 @@
     };
 
     function setup() {
-        canvas = createCanvas(windowWidth, windowHeight, WEBGL);
-        glsl = SwissGL(canvas.elt);
-        cells = glsl({
-            seed: Math.random() * 12417,
-            FP: "hash(ivec3(I, seed)), 1"
-        }, { ...cellsTargetParams });
+        setTimeout(() => {
+            canvas = createCanvas(windowWidth, windowHeight, WEBGL);
+            glsl = SwissGL(canvas.elt);
+            cells = glsl({
+                seed: Math.random() * 12417,
+                FP: "hash(ivec3(I, seed)), 1"
+            }, { ...cellsTargetParams });
 
-        initWeights();
-        frameRate(60);
+            initWeights();
+            frameRate(60);
+        }, 100);
 
         addEventListener("contextmenu", e => {
             e.preventDefault();
@@ -267,6 +269,7 @@
     }
 
     function draw() {
+        if (!canvas) { return; }
         if (!pause) { step(); }
         interact();
 
@@ -274,16 +277,9 @@
             cells: cells[0],
             FP: "cells(UV)",
         });
-        
-        if ( canvas.elt.windowWidth !== windowWidth
-        || canvas.elt.windowHeight !== windowWidth ) {
-            // sometimes resize event gets missed
-            resizeCanvas(windowWidth, windowHeight);
-        }
     };
 
     function windowResized() {
-        // less flicker if it's attempted here first
         resizeCanvas(windowWidth, windowHeight);
     };
 </script>

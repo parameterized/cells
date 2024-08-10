@@ -20,9 +20,8 @@
     let pause = false;
     let canvas;
     let glsl, cells, targetMass;
-    let perceptDists, perceptSharp;
-    let weights1, bias1;
-    let weights2, bias2;
+    let paramsHistory = [];
+    let historyIdx = 0;
 
     const cellsTargetParams = {
         scale: 1 / 6 / window.devicePixelRatio,
@@ -39,7 +38,7 @@
             FP: "hash(ivec3(I, seed)), 1"
         }, { ...cellsTargetParams });
 
-        initWeights();
+        paramsHistory.push(newParams());
         frameRate(60);
 
         addEventListener("contextmenu", e => {
@@ -56,68 +55,74 @@
         }, 100);
     };
 
-    function initWeights() {
-        perceptDists = [];
+    function newParams() {
+        let perceptDists = [];
         for (let i = 0; i < 3 * 3; i++) {
             perceptDists.push(random());
         }
         perceptDists = new Float32Array(perceptDists);
 
-        perceptSharp = [];
+        let perceptSharp = [];
         for (let i = 0; i < 3 * 3; i++) {
             perceptSharp.push(random(4, 16));
         }
         perceptSharp = new Float32Array(perceptSharp);
 
-        weights1 = [];
+        let w1 = [];
         for (let i = 0; i < 9 * 6; i++) {
-            weights1.push(random(-1, 1) * 10);
+            w1.push(random(-1, 1) * 10);
         }
-        weights1 = new Float32Array(weights1);
+        w1 = new Float32Array(w1);
 
-        bias1 = [];
+        let bias1 = [];
         for (let i = 0; i < 6; i++) {
             bias1.push(random());
         }
         bias1 = new Float32Array(bias1);
 
-        weights2 = [];
+        let w2 = [];
         for (let i = 0; i < 6 * 3; i++) {
-            weights2.push(random(-1, 1) * 10);
+            w2.push(random(-1, 1) * 10);
         }
-        weights2 = new Float32Array(weights2);
+        w2 = new Float32Array(w2);
 
-        bias2 = [];
+        let bias2 = [];
         for (let i = 0; i < 3; i++) {
             bias2.push(random());
         }
         bias2 = new Float32Array(bias2);
+        
+        return {
+            perceptDists, perceptSharp,
+            w1, bias1,
+            w2, bias2,
+        };
     }
 
     function keyPressed() {
         if (key === " ") {
             pause = !pause;
+        } else if (key === "s") {
+            step();
         } else if (key === "r") {
             glsl({ FP: "0" }, cells);
             step();
         } else if (key === "f") {
             glsl({ FP: "0" }, cells);
-            initWeights();
+            paramsHistory.push(newParams());
+            historyIdx = paramsHistory.length - 1;
             step();
+        } else if (key === "ArrowLeft") {
+            historyIdx = max(historyIdx - 1, 0);
         } else if (key === "ArrowRight") {
-            step();
+            historyIdx = min(historyIdx + 1, paramsHistory.length - 1);
         }
     }
 
     function step() {
         targetMass = glsl({
             cells: cells[0],
-            perceptDists,
-            perceptSharp,
-            w1: weights1,
-            bias1,
-            w2: weights2,
-            bias2,
+            ...paramsHistory[historyIdx],
             FP: `
             uniform mat3 perceptDists;
             uniform mat3 perceptSharp;

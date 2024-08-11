@@ -35,7 +35,7 @@ let historyIdx = 0;
 
 const cellsTargetParams = {
     scale: 1 / 6 / window.devicePixelRatio,
-    format: "rgba16f",
+    format: "rgba32f",
     story: 2,
     tag: "cells",
 };
@@ -70,21 +70,21 @@ const guiButtons = {
         pause = !pause;
     },
     step,
-    "call windowResized()": () => {
-        windowResized();
-    },
-}
+};
+
 const guiParams = {
     "reseed on next/last params": true,
 };
 
 const gui = new lil.GUI();
+
 for (const name in guiButtons) {
     gui.add(guiButtons, name);
 }
 for (const name in guiParams) {
     gui.add(guiParams, name);
 }
+
 gui.onChange(() => {
     for (const elt of [
         ...document.getElementsByTagName("button"),
@@ -317,9 +317,6 @@ function step() {
                     - massTransfer(I, offset)
                 );
             }
-
-            // TODO: fix evaporation
-            FOut.rgb += vec3(0.00013);
         }
     `}, { ...cellsTargetParams });
 }

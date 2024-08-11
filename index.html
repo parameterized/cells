@@ -26,347 +26,349 @@
 <body>
 
 <script>
-    let canvas;
-    let glsl, cells, targetMass;
-    let pause = false;
-    let paramsHistory = [];
-    let historyIdx = 0;
 
-    const cellsTargetParams = {
-        scale: 1 / 6 / window.devicePixelRatio,
-        format: "rgba16f",
-        story: 2,
-        tag: "cells",
-    };
+let canvas;
+let glsl, cells, targetMass;
+let pause = false;
+let paramsHistory = [];
+let historyIdx = 0;
 
-    const mouseButtonsDown = { 0: false, 1: false, 2: false };
+const cellsTargetParams = {
+    scale: 1 / 6 / window.devicePixelRatio,
+    format: "rgba16f",
+    story: 2,
+    tag: "cells",
+};
 
-    const guiButtons = {
-        "new params": () => {
-            paramsHistory.push(newParams());
-            historyIdx = paramsHistory.length - 1;
-            guiButtons.reseed();
-        },
-        "last params": () => {
-            if (historyIdx === 0) { return; }
-            historyIdx = max(historyIdx - 1, 0);
-            if (guiParams["reseed on next/last params"]) {
-                guiButtons.reseed();
-            }
-        },
-        "next params": () => {
-            if (historyIdx === paramsHistory.length - 1) { return; }
-            historyIdx = min(historyIdx + 1, paramsHistory.length - 1);
-            if (guiParams["reseed on next/last params"]) {
-                guiButtons.reseed();
-            }
-        },
-        reseed: () => {
-            glsl({ FP: "0" }, cells);
-            step();
-        },
-        pause: () => {
-            pause = !pause;
-        },
-        step,
-        "call windowResized()": () => {
-            windowResized();
-        },
-    }
-    const guiParams = {
-        "reseed on next/last params": true,
-    };
-    
-    const gui = new lil.GUI();
-    for (const name in guiButtons) {
-        gui.add(guiButtons, name);
-    }
-    for (const name in guiParams) {
-        gui.add(guiParams, name);
-    }
-    gui.onChange(() => {
-        for (const elt of [
-            ...document.getElementsByTagName("button"),
-            ...document.getElementsByTagName("input"),
-        ]) { elt.blur(); }
-    });
-    
-    function setup() {
-        canvas = createCanvas(windowWidth, windowHeight, WEBGL);
-        glsl = SwissGL(canvas.elt);
-        cells = glsl({
-            seed: Math.random() * 12417,
-            FP: "hash(ivec3(I, seed)), 1"
-        }, { ...cellsTargetParams });
+const mouseButtonsDown = { 0: false, 1: false, 2: false };
 
+const guiButtons = {
+    "new params": () => {
         paramsHistory.push(newParams());
-        frameRate(60);
-
-        addEventListener("contextmenu", e => {
-            e.preventDefault();
-        });
-
-        setTimeout(() => {
-            windowResized();
-        }, 100);
-    };
-
-    function newParams() {
-        let perceptDists = [];
-        for (let i = 0; i < 3 * 3; i++) {
-            perceptDists.push(random());
-        }
-        perceptDists = new Float32Array(perceptDists);
-
-        let perceptSharp = [];
-        for (let i = 0; i < 3 * 3; i++) {
-            perceptSharp.push(random(4, 16));
-        }
-        perceptSharp = new Float32Array(perceptSharp);
-
-        let w1 = [];
-        for (let i = 0; i < 9 * 6; i++) {
-            w1.push(random(-1, 1) * 10);
-        }
-        w1 = new Float32Array(w1);
-
-        let bias1 = [];
-        for (let i = 0; i < 6; i++) {
-            bias1.push(random());
-        }
-        bias1 = new Float32Array(bias1);
-
-        let w2 = [];
-        for (let i = 0; i < 6 * 3; i++) {
-            w2.push(random(-1, 1) * 10);
-        }
-        w2 = new Float32Array(w2);
-
-        let bias2 = [];
-        for (let i = 0; i < 3; i++) {
-            bias2.push(random());
-        }
-        bias2 = new Float32Array(bias2);
-        
-        return {
-            perceptDists, perceptSharp,
-            w1, bias1,
-            w2, bias2,
-        };
-    }
-
-    function mousePressed(e) {
-        if (e.target !== canvas.elt) { return; }
-        if (e.detail > 1) {
-            e.preventDefault();
-        }
-        if (e.button in mouseButtonsDown) {
-            mouseButtonsDown[e.button] = true;
-        }
-    }
-
-    function mouseReleased(e) {
-        if (e.button in mouseButtonsDown) {
-            mouseButtonsDown[e.button] = false;
-        }
-    }
-
-    // better version of mouseIsPressed
-    function mouseIsDown(button) {
-        if (button === undefined) {
-            for (const b in mouseButtonsDown) {
-                if (mouseButtonsDown[b]) {
-                    return true;
-                }
-            }
-            return false;
-        }
-        return button in mouseButtonsDown && mouseButtonsDown[button];
-    }
-
-    function keyPressed(e) {
-        if (key === "f") {
-            guiButtons["new params"]();
-        } else if (key === "ArrowLeft") {
-            guiButtons["last params"]();
-        } else if (key === "ArrowRight") {
-            guiButtons["next params"]();
-        } else if (key === "r") {
+        historyIdx = paramsHistory.length - 1;
+        guiButtons.reseed();
+    },
+    "last params": () => {
+        if (historyIdx === 0) { return; }
+        historyIdx = max(historyIdx - 1, 0);
+        if (guiParams["reseed on next/last params"]) {
             guiButtons.reseed();
-        } else if (key === " ") {
-            guiButtons.pause();
-        } else if (key === "s") {
-            guiButtons.step();
         }
-    }
-
-    function step() {
-        targetMass = glsl({
-            cells: cells[0],
-            ...paramsHistory[historyIdx],
-            FP: `
-            uniform mat3 perceptDists;
-            uniform mat3 perceptSharp;
-            uniform vec3 w1[18];
-            uniform vec3 bias1[2];
-            uniform vec3 w2[6];
-            uniform vec3 bias2;
-
-            void fragment() {
-                mat3 percept;
-                mat3 perceptDivisor;
-
-                for (int k = 0; k < 81; k++) {
-                    ivec2 offset = ivec2(k % 9 - 4, k / 9 - 4);
-                    if (offset == ivec2(0)) { continue; }
-                    ivec2 neighborPos = (
-                        I + offset + cells_size()
-                    ) % cells_size();
-
-                    float dist = length(vec2(offset)) / 5.0;
-                    float circleMask = dist <= 1.0 ? 1.0 : 0.0;
-                    mat3 shiftedDists = dist - perceptDists;
-                    mat3 absDists = mat3(
-                        abs(shiftedDists[0]),
-                        abs(shiftedDists[1]),
-                        abs(shiftedDists[2])
-                    );
-                    mat3 contribution = mat3(
-                        exp(-perceptSharp[0] * absDists[0]),
-                        exp(-perceptSharp[1] * absDists[1]),
-                        exp(-perceptSharp[2] * absDists[2])
-                    ) * circleMask;
-                    perceptDivisor += contribution;
-
-                    vec3 rgb = cells(neighborPos).rgb;
-                    percept += mat3(
-                        contribution[0] * rgb,
-                        contribution[1] * rgb,
-                        contribution[2] * rgb
-                    );
-                }
-
-                percept /= perceptDivisor;
-
-                mat3 p = percept;
-
-                vec3 h0 = max(vec3(0), bias1[0] + vec3(
-                    dot(w1[0], p[0]) + dot(w1[1], p[1]) + dot(w1[2], p[2]),
-                    dot(w1[3], p[0]) + dot(w1[4], p[1]) + dot(w1[5], p[2]),
-                    dot(w1[6], p[0]) + dot(w1[7], p[1]) + dot(w1[8], p[2])
-                ));
-                vec3 h1 = max(vec3(0), bias1[1] + vec3(
-                    dot(w1[9], p[0]) + dot(w1[10], p[1]) + dot(w1[11], p[2]),
-                    dot(w1[12], p[0]) + dot(w1[13], p[1]) + dot(w1[14], p[2]),
-                    dot(w1[15], p[0]) + dot(w1[16], p[1]) + dot(w1[17], p[2])
-                ));
-
-                vec3 targetMass = vec3(
-                    bias2.r + dot(w2[0], h0) + dot(w2[1], h1),
-                    bias2.g + dot(w2[2], h0) + dot(w2[3], h1),
-                    bias2.b + dot(w2[4], h0) + dot(w2[5], h1)
-                );
-                targetMass = clamp(targetMass, 0.0, 1.0);
-                FOut = vec4(targetMass, 1.0);
-            }
-        `}, {
-            size: cells[0].size,
-            format: "rgba16f",
-            tag: "targetMass",
-        });
-
-        cells = glsl({
-            targetMass,
-            seed: Math.random() * 12417,
-            FP: `
-            vec3 massTransfer(ivec2 pos, ivec2 dir) {
-                pos = (pos + Src_size()) % Src_size();
-                vec3 iWants = targetMass(pos).rgb - Src(pos).rgb;
-                ivec2 dirPos = (pos + dir + Src_size()) % Src_size();
-                vec3 dirWants = targetMass(dirPos).rgb - Src(dirPos).rgb;
-
-                vec3 iMassClamped = clamp(Src(pos).rgb, 0.0, 1.0);
-                vec3 dirMassClamped = clamp(Src(dirPos).rgb, 0.0, 1.0);
-
-                vec3 maxDirAccept = (1.0 - dirMassClamped) / 8.0;
-                vec3 minDirAccept = -dirMassClamped / 8.0;
-                vec3 maxIAccept = (1.0 - iMassClamped) / 8.0;
-                vec3 minIAccept = -iMassClamped / 8.0;
-
-                vec3 giveDir = clamp(
-                    (dirWants - iWants) / 32.0,
-                    max(minDirAccept, -maxIAccept),
-                    min(maxDirAccept, -minIAccept)
-                );
-                return giveDir;
-            }
-
-            void fragment() {
-                FOut = Src(I);
-                if (FOut.a == 0.0) {
-                    FOut = vec4(hash(ivec3(I, seed)), 1);
-                    return;
-                }
-
-                for (int k = 0; k < 9; k++) {
-                    ivec2 offset = ivec2(k % 3 - 1, k / 3 - 1);
-                    if (offset == ivec2(0)) { continue; }
-                    FOut.rgb += (
-                        massTransfer(I + offset, -offset)
-                        - massTransfer(I, offset)
-                    );
-                }
-
-                // TODO: fix evaporation
-                FOut.rgb += vec3(0.00013);
-            }
-        `}, { ...cellsTargetParams });
-    }
-
-    function interact() {
-        if (mouseIsDown(0)) {
-            const aspect = windowWidth / windowHeight;
-            const ww = windowWidth, wh = windowHeight;
-            let mxSquare, mySquare;
-            if (aspect > 1) {
-                mxSquare = (ww / 2 + (mouseX - ww / 2) * aspect) / ww;
-                mySquare = 1 - mouseY / wh;
-            } else {
-                mxSquare = mouseX / ww;
-                mySquare = 1 - (wh / 2 + (mouseY - wh / 2) / aspect) / wh;
-            }
-            glsl({
-                seed: Math.random() * 12417,
-                mouseSquare: [mxSquare, mySquare],
-                cells: cells[1],
-                FP: `
-                vec2 size = vec2(cells_size());
-                float aspect = size.x / size.y;
-                vec2 uvSquare = (
-                    aspect > 1.0
-                    ? vec2(0.5 + (UV.x - 0.5) * aspect, UV.y)
-                    : vec2(UV.x, 0.5 + (UV.y - 0.5) / aspect)
-                );
-                if (distance(uvSquare, mouseSquare) < 0.1) {
-                    FOut = vec4(hash(ivec3(I, seed)), 1);
-                } else {
-                    FOut = cells(I);
-                }
-            `}, cells[0]);
+    },
+    "next params": () => {
+        if (historyIdx === paramsHistory.length - 1) { return; }
+        historyIdx = min(historyIdx + 1, paramsHistory.length - 1);
+        if (guiParams["reseed on next/last params"]) {
+            guiButtons.reseed();
         }
+    },
+    reseed: () => {
+        glsl({ FP: "0" }, cells);
+        step();
+    },
+    pause: () => {
+        pause = !pause;
+    },
+    step,
+    "call windowResized()": () => {
+        windowResized();
+    },
+}
+const guiParams = {
+    "reseed on next/last params": true,
+};
+
+const gui = new lil.GUI();
+for (const name in guiButtons) {
+    gui.add(guiButtons, name);
+}
+for (const name in guiParams) {
+    gui.add(guiParams, name);
+}
+gui.onChange(() => {
+    for (const elt of [
+        ...document.getElementsByTagName("button"),
+        ...document.getElementsByTagName("input"),
+    ]) { elt.blur(); }
+});
+
+function setup() {
+    canvas = createCanvas(windowWidth, windowHeight, WEBGL);
+    glsl = SwissGL(canvas.elt);
+    cells = glsl({
+        seed: Math.random() * 12417,
+        FP: "hash(ivec3(I, seed)), 1"
+    }, { ...cellsTargetParams });
+
+    paramsHistory.push(newParams());
+    frameRate(60);
+
+    addEventListener("contextmenu", e => {
+        e.preventDefault();
+    });
+
+    setTimeout(() => {
+        windowResized();
+    }, 100);
+};
+
+function newParams() {
+    let perceptDists = [];
+    for (let i = 0; i < 3 * 3; i++) {
+        perceptDists.push(random());
     }
+    perceptDists = new Float32Array(perceptDists);
 
-    function draw() {
-        if (!pause) { step(); }
-        interact();
+    let perceptSharp = [];
+    for (let i = 0; i < 3 * 3; i++) {
+        perceptSharp.push(random(4, 16));
+    }
+    perceptSharp = new Float32Array(perceptSharp);
 
+    let w1 = [];
+    for (let i = 0; i < 9 * 6; i++) {
+        w1.push(random(-1, 1) * 10);
+    }
+    w1 = new Float32Array(w1);
+
+    let bias1 = [];
+    for (let i = 0; i < 6; i++) {
+        bias1.push(random());
+    }
+    bias1 = new Float32Array(bias1);
+
+    let w2 = [];
+    for (let i = 0; i < 6 * 3; i++) {
+        w2.push(random(-1, 1) * 10);
+    }
+    w2 = new Float32Array(w2);
+
+    let bias2 = [];
+    for (let i = 0; i < 3; i++) {
+        bias2.push(random());
+    }
+    bias2 = new Float32Array(bias2);
+    
+    return {
+        perceptDists, perceptSharp,
+        w1, bias1,
+        w2, bias2,
+    };
+}
+
+function mousePressed(e) {
+    if (e.target !== canvas.elt) { return; }
+    if (e.detail > 1) {
+        e.preventDefault();
+    }
+    if (e.button in mouseButtonsDown) {
+        mouseButtonsDown[e.button] = true;
+    }
+}
+
+function mouseReleased(e) {
+    if (e.button in mouseButtonsDown) {
+        mouseButtonsDown[e.button] = false;
+    }
+}
+
+// better version of mouseIsPressed
+function mouseIsDown(button) {
+    if (button === undefined) {
+        for (const b in mouseButtonsDown) {
+            if (mouseButtonsDown[b]) {
+                return true;
+            }
+        }
+        return false;
+    }
+    return button in mouseButtonsDown && mouseButtonsDown[button];
+}
+
+function keyPressed(e) {
+    if (key === "f") {
+        guiButtons["new params"]();
+    } else if (key === "ArrowLeft") {
+        guiButtons["last params"]();
+    } else if (key === "ArrowRight") {
+        guiButtons["next params"]();
+    } else if (key === "r") {
+        guiButtons.reseed();
+    } else if (key === " ") {
+        guiButtons.pause();
+    } else if (key === "s") {
+        guiButtons.step();
+    }
+}
+
+function step() {
+    targetMass = glsl({
+        cells: cells[0],
+        ...paramsHistory[historyIdx],
+        FP: `
+        uniform mat3 perceptDists;
+        uniform mat3 perceptSharp;
+        uniform vec3 w1[18];
+        uniform vec3 bias1[2];
+        uniform vec3 w2[6];
+        uniform vec3 bias2;
+
+        void fragment() {
+            mat3 percept;
+            mat3 perceptDivisor;
+
+            for (int k = 0; k < 81; k++) {
+                ivec2 offset = ivec2(k % 9 - 4, k / 9 - 4);
+                if (offset == ivec2(0)) { continue; }
+                ivec2 neighborPos = (
+                    I + offset + cells_size()
+                ) % cells_size();
+
+                float dist = length(vec2(offset)) / 5.0;
+                float circleMask = dist <= 1.0 ? 1.0 : 0.0;
+                mat3 shiftedDists = dist - perceptDists;
+                mat3 absDists = mat3(
+                    abs(shiftedDists[0]),
+                    abs(shiftedDists[1]),
+                    abs(shiftedDists[2])
+                );
+                mat3 contribution = mat3(
+                    exp(-perceptSharp[0] * absDists[0]),
+                    exp(-perceptSharp[1] * absDists[1]),
+                    exp(-perceptSharp[2] * absDists[2])
+                ) * circleMask;
+                perceptDivisor += contribution;
+
+                vec3 rgb = cells(neighborPos).rgb;
+                percept += mat3(
+                    contribution[0] * rgb,
+                    contribution[1] * rgb,
+                    contribution[2] * rgb
+                );
+            }
+
+            percept /= perceptDivisor;
+
+            mat3 p = percept;
+
+            vec3 h0 = max(vec3(0), bias1[0] + vec3(
+                dot(w1[0], p[0]) + dot(w1[1], p[1]) + dot(w1[2], p[2]),
+                dot(w1[3], p[0]) + dot(w1[4], p[1]) + dot(w1[5], p[2]),
+                dot(w1[6], p[0]) + dot(w1[7], p[1]) + dot(w1[8], p[2])
+            ));
+            vec3 h1 = max(vec3(0), bias1[1] + vec3(
+                dot(w1[9], p[0]) + dot(w1[10], p[1]) + dot(w1[11], p[2]),
+                dot(w1[12], p[0]) + dot(w1[13], p[1]) + dot(w1[14], p[2]),
+                dot(w1[15], p[0]) + dot(w1[16], p[1]) + dot(w1[17], p[2])
+            ));
+
+            vec3 targetMass = vec3(
+                bias2.r + dot(w2[0], h0) + dot(w2[1], h1),
+                bias2.g + dot(w2[2], h0) + dot(w2[3], h1),
+                bias2.b + dot(w2[4], h0) + dot(w2[5], h1)
+            );
+            targetMass = clamp(targetMass, 0.0, 1.0);
+            FOut = vec4(targetMass, 1.0);
+        }
+    `}, {
+        size: cells[0].size,
+        format: "rgba16f",
+        tag: "targetMass",
+    });
+
+    cells = glsl({
+        targetMass,
+        seed: Math.random() * 12417,
+        FP: `
+        vec3 massTransfer(ivec2 pos, ivec2 dir) {
+            pos = (pos + Src_size()) % Src_size();
+            vec3 iWants = targetMass(pos).rgb - Src(pos).rgb;
+            ivec2 dirPos = (pos + dir + Src_size()) % Src_size();
+            vec3 dirWants = targetMass(dirPos).rgb - Src(dirPos).rgb;
+
+            vec3 iMassClamped = clamp(Src(pos).rgb, 0.0, 1.0);
+            vec3 dirMassClamped = clamp(Src(dirPos).rgb, 0.0, 1.0);
+
+            vec3 maxDirAccept = (1.0 - dirMassClamped) / 8.0;
+            vec3 minDirAccept = -dirMassClamped / 8.0;
+            vec3 maxIAccept = (1.0 - iMassClamped) / 8.0;
+            vec3 minIAccept = -iMassClamped / 8.0;
+
+            vec3 giveDir = clamp(
+                (dirWants - iWants) / 32.0,
+                max(minDirAccept, -maxIAccept),
+                min(maxDirAccept, -minIAccept)
+            );
+            return giveDir;
+        }
+
+        void fragment() {
+            FOut = Src(I);
+            if (FOut.a == 0.0) {
+                FOut = vec4(hash(ivec3(I, seed)), 1);
+                return;
+            }
+
+            for (int k = 0; k < 9; k++) {
+                ivec2 offset = ivec2(k % 3 - 1, k / 3 - 1);
+                if (offset == ivec2(0)) { continue; }
+                FOut.rgb += (
+                    massTransfer(I + offset, -offset)
+                    - massTransfer(I, offset)
+                );
+            }
+
+            // TODO: fix evaporation
+            FOut.rgb += vec3(0.00013);
+        }
+    `}, { ...cellsTargetParams });
+}
+
+function interact() {
+    if (mouseIsDown(0)) {
+        const aspect = windowWidth / windowHeight;
+        const ww = windowWidth, wh = windowHeight;
+        let mxSquare, mySquare;
+        if (aspect > 1) {
+            mxSquare = (ww / 2 + (mouseX - ww / 2) * aspect) / ww;
+            mySquare = 1 - mouseY / wh;
+        } else {
+            mxSquare = mouseX / ww;
+            mySquare = 1 - (wh / 2 + (mouseY - wh / 2) / aspect) / wh;
+        }
         glsl({
-            cells: cells[0],
-            FP: "cells(UV)",
-        });
-    };
+            seed: Math.random() * 12417,
+            mouseSquare: [mxSquare, mySquare],
+            cells: cells[1],
+            FP: `
+            vec2 size = vec2(cells_size());
+            float aspect = size.x / size.y;
+            vec2 uvSquare = (
+                aspect > 1.0
+                ? vec2(0.5 + (UV.x - 0.5) * aspect, UV.y)
+                : vec2(UV.x, 0.5 + (UV.y - 0.5) / aspect)
+            );
+            if (distance(uvSquare, mouseSquare) < 0.1) {
+                FOut = vec4(hash(ivec3(I, seed)), 1);
+            } else {
+                FOut = cells(I);
+            }
+        `}, cells[0]);
+    }
+}
 
-    function windowResized() {
-        resizeCanvas(window.innerWidth, window.innerHeight);
-    };
+function draw() {
+    if (!pause) { step(); }
+    interact();
+
+    glsl({
+        cells: cells[0],
+        FP: "cells(UV)",
+    });
+};
+
+function windowResized() {
+    resizeCanvas(window.innerWidth, window.innerHeight);
+};
+
 </script>

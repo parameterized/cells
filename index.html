@@ -8,6 +8,8 @@
         background-color: #262626;
     }
     canvas { display: block; }
+
+    .lil-gui { --width: 16em; }
 </style>
 
 <!-- fallback to cdn -->
@@ -15,11 +17,18 @@
 <script>window.p5 || document.write('<script src="https://cdn.jsdelivr.net/npm/p5@1.9.4/lib/p5.js">\x3C/script>')</script>
 <script src="lib/swissgl.js"></script>
 <script>window.SwissGL || document.write('<script src="https://cdn.jsdelivr.net/gh/google/swissgl@main/swissgl.js">\x3C/script>')</script>
+<script src="lib/lil-gui.umd.js"></script>
+<script>window.lil || document.write('<script src="https://cdn.jsdelivr.net/npm/lil-gui@0.19.2/dist/lil-gui.umd.js">\x3C/script>')</script>
+
+<!-- lil-gui icons will break if the below comment is removed -->
+<!-- ✓ -->
+<!-- and gui init has to happen after body is created -->
+<body>
 
 <script>
-    let pause = false;
     let canvas;
     let glsl, cells, targetMass;
+    let pause = false;
     let paramsHistory = [];
     let historyIdx = 0;
 
@@ -30,6 +39,58 @@
         tag: "cells",
     };
 
+    const mouseButtonsDown = { 0: false, 1: false, 2: false };
+
+    const guiButtons = {
+        "new params": () => {
+            paramsHistory.push(newParams());
+            historyIdx = paramsHistory.length - 1;
+            guiButtons.reseed();
+        },
+        "last params": () => {
+            if (historyIdx === 0) { return; }
+            historyIdx = max(historyIdx - 1, 0);
+            if (guiParams["reseed on next/last param"]) {
+                guiButtons.reseed();
+            }
+        },
+        "next params": () => {
+            if (historyIdx === paramsHistory.length - 1) { return; }
+            historyIdx = min(historyIdx + 1, paramsHistory.length - 1);
+            if (guiParams["reseed on next/last param"]) {
+                guiButtons.reseed();
+            }
+        },
+        reseed: (x) => {
+            glsl({ FP: "0" }, cells);
+            step();
+        },
+        pause: () => {
+            pause = !pause;
+        },
+        step,
+        "call windowResized()": () => {
+            windowResized();
+        },
+    }
+    const guiParams = {
+        "reseed on next/last param": true,
+    };
+    
+    const gui = new lil.GUI();
+    for (const name in guiButtons) {
+        gui.add(guiButtons, name);
+    }
+    for (const name in guiParams) {
+        gui.add(guiParams, name);
+    }
+    gui.onChange(() => {
+        for (const elt of [
+            ...document.getElementsByTagName("button"),
+            ...document.getElementsByTagName("input"),
+        ]) { elt.blur(); }
+    });
+    
     function setup() {
         canvas = createCanvas(windowWidth, windowHeight, WEBGL);
         glsl = SwissGL(canvas.elt);
@@ -43,11 +104,6 @@
 
         addEventListener("contextmenu", e => {
             e.preventDefault();
-        });
-        addEventListener("mousedown", e => {
-            if (e.detail > 1) {
-                e.preventDefault();
-            }
         });
 
         setTimeout(() => {
@@ -99,23 +155,48 @@
         };
     }
 
-    function keyPressed() {
-        if (key === " ") {
-            pause = !pause;
-        } else if (key === "s") {
-            step();
-        } else if (key === "r") {
-            glsl({ FP: "0" }, cells);
-            step();
-        } else if (key === "f") {
-            glsl({ FP: "0" }, cells);
-            paramsHistory.push(newParams());
-            historyIdx = paramsHistory.length - 1;
-            step();
+    function mousePressed(e) {
+        if (e.target !== canvas.elt) { return; }
+        if (e.detail > 1) {
+            e.preventDefault();
+        }
+        if (e.button in mouseButtonsDown) {
+            mouseButtonsDown[e.button] = true;
+        }
+    }
+
+    function mouseReleased(e) {
+        if (e.button in mouseButtonsDown) {
+            mouseButtonsDown[e.button] = false;
+        }
+    }
+
+    // better version of mouseIsPressed
+    function mouseIsDown(button) {
+        if (button === undefined) {
+            for (const b in mouseButtonsDown) {
+                if (mouseButtonsDown[b]) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        return button in mouseButtonsDown && mouseButtonsDown[button];
+    }
+
+    function keyPressed(e) {
+        if (key === "f") {
+            guiButtons["new params"]();
         } else if (key === "ArrowLeft") {
-            historyIdx = max(historyIdx - 1, 0);
+            guiButtons["last params"]();
         } else if (key === "ArrowRight") {
-            historyIdx = min(historyIdx + 1, paramsHistory.length - 1);
+            guiButtons["next params"]();
+        } else if (key === "r") {
+            guiButtons.reseed();
+        } else if (key === " ") {
+            guiButtons.pause();
+        } else if (key === "s") {
+            guiButtons.step();
         }
     }
 
@@ -243,7 +324,7 @@
     }
 
     function interact() {
-        if (mouseIsPressed) {
+        if (mouseIsDown(0)) {
             const aspect = windowWidth / windowHeight;
             const ww = windowWidth, wh = windowHeight;
             let mxSquare, mySquare;

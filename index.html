@@ -113,47 +113,50 @@ function setup() {
 };
 
 function newParams() {
-    let perceptDists = [];
-    for (let i = 0; i < 3 * 3; i++) {
-        perceptDists.push(random());
+    const paramSets = {
+        objects: [],
+        encoded: [],
     }
-    perceptDists = new Float32Array(perceptDists);
+    for (let k = 0; k < 9; k++) {
+        const perceptDists = [], perceptSharp = [];
+        const w1 = [], bias1 = [], w2 = [], bias2 = [];
 
-    let perceptSharp = [];
-    for (let i = 0; i < 3 * 3; i++) {
-        perceptSharp.push(random(4, 16));
-    }
-    perceptSharp = new Float32Array(perceptSharp);
+        for (let i = 0; i < 3 * 3; i++) {
+            perceptDists.push(random());
+        }
+        for (let i = 0; i < 3 * 3; i++) {
+            perceptSharp.push(random(4, 16));
+        }
+        for (let i = 0; i < 9 * 6; i++) {
+            w1.push(random(-1, 1) * 10);
+        }
+        for (let i = 0; i < 6; i++) {
+            bias1.push(random());
+        }
+        for (let i = 0; i < 6 * 3; i++) {
+            w2.push(random(-1, 1) * 10);
+        }
+        for (let i = 0; i < 3; i++) {
+            bias2.push(random());
+        }
 
-    let w1 = [];
-    for (let i = 0; i < 9 * 6; i++) {
-        w1.push(random(-1, 1) * 10);
+        paramSets.objects.push({
+            perceptDists, perceptSharp,
+            w1, bias1,
+            w2, bias2,
+        });
     }
-    w1 = new Float32Array(w1);
 
-    let bias1 = [];
-    for (let i = 0; i < 6; i++) {
-        bias1.push(random());
+    for (const params of paramSets.objects) {
+        for (const name of [
+            "perceptDists", "perceptSharp", "w1", "bias1", "w2", "bias2"
+        ]) {
+            paramSets.encoded = paramSets.encoded.concat(params[name]);
+        }
     }
-    bias1 = new Float32Array(bias1);
+    paramSets.encoded = new Float32Array(paramSets.encoded);
 
-    let w2 = [];
-    for (let i = 0; i < 6 * 3; i++) {
-        w2.push(random(-1, 1) * 10);
-    }
-    w2 = new Float32Array(w2);
-
-    let bias2 = [];
-    for (let i = 0; i < 3; i++) {
-        bias2.push(random());
-    }
-    bias2 = new Float32Array(bias2);
-    
-    return {
-        perceptDists, perceptSharp,
-        w1, bias1,
-        w2, bias2,
-    };
+    return paramSets;
 }
 
 function mousePressed(e) {
@@ -204,16 +207,28 @@ function keyPressed(e) {
 function step() {
     targetMass = glsl({
         cells: cells[0],
-        ...paramsHistory[historyIdx],
+        p: paramsHistory[historyIdx].encoded,
         FP: `
-        uniform mat3 perceptDists;
-        uniform mat3 perceptSharp;
-        uniform vec3 w1[18];
-        uniform vec3 bias1[2];
-        uniform vec3 w2[6];
-        uniform vec3 bias2;
+        uniform vec3 p[297];
 
         void fragment() {
+            int paramGridX = min(max(int(UV.x * 3.0), 0), 2);
+            int paramGridY = min(max(int(UV.y * 3.0), 0), 2);
+            int o = ((2 - paramGridY) * 3 + paramGridX) * 33;
+
+            mat3 perceptDists = mat3(p[o+0], p[o+1], p[o+2]);
+            mat3 perceptSharp = mat3(p[o+3], p[o+4], p[o+5]);
+            vec3 w1[18] = vec3[](
+                p[o+6], p[o+7], p[o+8], p[o+9], p[o+10], p[o+11],
+                p[o+12], p[o+13], p[o+14], p[o+15], p[o+16], p[o+17],
+                p[o+18], p[o+19], p[o+20], p[o+21], p[o+22], p[o+23]
+            );
+            vec3 bias1[2] = vec3[](p[o+24], p[o+25]);
+            vec3 w2[6] = vec3[](
+                p[o+26], p[o+27], p[o+28], p[o+29], p[o+30], p[o+31]
+            );
+            vec3 bias2 = p[o+32];
+
             mat3 percept;
             mat3 perceptDivisor;
 
@@ -272,7 +287,7 @@ function step() {
         }
     `}, {
         size: cells[0].size,
-        format: "rgba16f",
+        format: "rgba32f",
         tag: "targetMass",
     });
 

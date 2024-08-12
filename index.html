@@ -74,6 +74,7 @@ const guiButtons = {
 
 const guiParams = {
     "reseed on next/last params": true,
+    "mutation strength": 0.05,
 };
 
 const gui = new lil.GUI();
@@ -81,9 +82,8 @@ const gui = new lil.GUI();
 for (const name in guiButtons) {
     gui.add(guiButtons, name);
 }
-for (const name in guiParams) {
-    gui.add(guiParams, name);
-}
+gui.add(guiParams, "reseed on next/last params");
+gui.add(guiParams, "mutation strength", 0, 1);
 
 gui.onChange(() => {
     for (const elt of [
@@ -159,6 +159,55 @@ function newParams() {
     return paramSets;
 }
 
+function mutateParams(selectedParams) {
+    const paramSets = {
+        objects: [],
+        encoded: [],
+    }
+    const sp = selectedParams;
+    const amt = guiParams["mutation strength"];
+    for (let k = 0; k < 9; k++) {
+        const perceptDists = [], perceptSharp = [];
+        const w1 = [], bias1 = [], w2 = [], bias2 = [];
+
+        for (let i = 0; i < 3 * 3; i++) {
+            perceptDists.push(lerp(sp.perceptDists[i], random(), amt));
+        }
+        for (let i = 0; i < 3 * 3; i++) {
+            perceptSharp.push(lerp(sp.perceptSharp[i], random(4, 16), amt));
+        }
+        for (let i = 0; i < 9 * 6; i++) {
+            w1.push(lerp(sp.w1[i], random(-1, 1) * 10, amt));
+        }
+        for (let i = 0; i < 6; i++) {
+            bias1.push(lerp(sp.bias1[i], random(), amt));
+        }
+        for (let i = 0; i < 6 * 3; i++) {
+            w2.push(lerp(sp.w2[i], random(-1, 1) * 10, amt));
+        }
+        for (let i = 0; i < 3; i++) {
+            bias2.push(lerp(sp.bias2[i], random(), amt));
+        }
+
+        paramSets.objects.push({
+            perceptDists, perceptSharp,
+            w1, bias1,
+            w2, bias2,
+        });
+    }
+
+    for (const params of paramSets.objects) {
+        for (const name of [
+            "perceptDists", "perceptSharp", "w1", "bias1", "w2", "bias2"
+        ]) {
+            paramSets.encoded = paramSets.encoded.concat(params[name]);
+        }
+    }
+    paramSets.encoded = new Float32Array(paramSets.encoded);
+
+    return paramSets;
+}
+
 function mousePressed(e) {
     if (e.target !== canvas.elt) { return; }
     if (e.detail > 1) {
@@ -166,6 +215,16 @@ function mousePressed(e) {
     }
     if (e.button in mouseButtonsDown) {
         mouseButtonsDown[e.button] = true;
+    }
+    
+    if (e.button === 2) {
+        const tileX = min(max(int(mouseX / windowWidth * 3), 0), 2);
+        const tileY = min(max(int(mouseY / windowHeight * 3), 0), 2);
+        const tileIdx = tileY * 3 + tileX;
+        const selectedParams = paramsHistory[historyIdx].objects[tileIdx];
+        paramsHistory.push(mutateParams(selectedParams));
+        historyIdx = paramsHistory.length - 1;
+        guiButtons.reseed();
     }
 }
 

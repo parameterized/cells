@@ -33,13 +33,6 @@ let pause = false;
 let paramsHistory = [];
 let historyIdx = 0;
 
-const cellsTargetParams = {
-    scale: 1 / 6 / window.devicePixelRatio,
-    format: "rgba32f",
-    story: 2,
-    tag: "cells",
-};
-
 const mouseButtonsDown = { 0: false, 1: false, 2: false };
 
 const guiButtons = {
@@ -75,6 +68,7 @@ const guiButtons = {
 const guiParams = {
     "reseed on next/last params": true,
     "mutation strength": 0.05,
+    "pixels per cell": 6,
 };
 
 const gui = new lil.GUI();
@@ -84,6 +78,11 @@ for (const name in guiButtons) {
 }
 gui.add(guiParams, "reseed on next/last params");
 gui.add(guiParams, "mutation strength", 0, 1);
+gui.add(guiParams, "pixels per cell", 1, 12).onChange( value => {
+    cellsTargetParams.scale = (
+        1 / guiParams["pixels per cell"] / window.devicePixelRatio
+    );
+});
 
 gui.onChange(() => {
     for (const elt of [
@@ -91,6 +90,13 @@ gui.onChange(() => {
         ...document.getElementsByTagName("input"),
     ]) { elt.blur(); }
 });
+
+const cellsTargetParams = {
+    scale: 1 / guiParams["pixels per cell"] / window.devicePixelRatio,
+    format: "rgba32f",
+    story: 2,
+    tag: "cells",
+};
 
 function setup() {
     canvas = createCanvas(windowWidth, windowHeight, WEBGL);

@@ -26,32 +26,43 @@
 <body>
 
 <script>
+const sauce = document.documentElement.innerHTML;
+const state = {};
 
 let canvas;
 let glsl, cells, targetMass;
-let pause = false;
-let paramsHistory = [];
-let historyIdx = 0;
+
+state.paramsHistory = state.paramsHistory || [];
+state.historyIdx = state.historyIdx || 0;
+state.guiParams = state.guiParams || {
+    filename: `cells_${Math.random().toFixed(5).substr(2)}`,
+    "reseed on next/last params": true,
+    "mutation strength": 0.05,
+    "pixels per cell": 6,
+};
 
 const mouseButtonsDown = { 0: false, 1: false, 2: false };
 
 const guiButtons = {
     "new params": () => {
-        paramsHistory.push(newParams());
-        historyIdx = paramsHistory.length - 1;
+        state.paramsHistory.push(newParams());
+        state.historyIdx = state.paramsHistory.length - 1;
         guiButtons.reseed();
     },
     "last params": () => {
-        if (historyIdx === 0) { return; }
-        historyIdx = max(historyIdx - 1, 0);
-        if (guiParams["reseed on next/last params"]) {
+        if (state.historyIdx === 0) { return; }
+        state.historyIdx = max(state.historyIdx - 1, 0);
+        if (state.guiParams["reseed on next/last params"]) {
             guiButtons.reseed();
         }
     },
     "next params": () => {
-        if (historyIdx === paramsHistory.length - 1) { return; }
-        historyIdx = min(historyIdx + 1, paramsHistory.length - 1);
-        if (guiParams["reseed on next/last params"]) {
+        if (state.historyIdx === state.paramsHistory.length - 1) { return; }
+        state.historyIdx = min(
+            state.historyIdx + 1,
+            state.paramsHistory.length - 1
+        );
+        if (state.guiParams["reseed on next/last params"]) {
             guiButtons.reseed();
         }
     },
@@ -60,15 +71,20 @@ const guiButtons = {
         step();
     },
     pause: () => {
-        pause = !pause;
+        state.pause = !state.pause;
     },
     step,
-};
-
-const guiParams = {
-    "reseed on next/last params": true,
-    "mutation strength": 0.05,
-    "pixels per cell": 6,
+    save: () => {
+        const sauceWithState = sauce.replace(
+            /(?<=const state = ).*/,
+            `JSON.parse('${JSON.stringify(state)}');`
+        );
+        const a = document.createElement("a");
+        const bob = new Blob([sauceWithState], {type: "text/plain"})
+        a.setAttribute("href", URL.createObjectURL(bob));
+        a.setAttribute("download", `${state.guiParams.filename}.html`);
+        a.click();
+    },
 };
 
 const gui = new lil.GUI();
@@ -76,11 +92,12 @@ const gui = new lil.GUI();
 for (const name in guiButtons) {
     gui.add(guiButtons, name);
 }
-gui.add(guiParams, "reseed on next/last params");
-gui.add(guiParams, "mutation strength", 0, 1);
-gui.add(guiParams, "pixels per cell", 1, 12).onChange( value => {
+gui.add(state.guiParams, "filename");
+gui.add(state.guiParams, "reseed on next/last params");
+gui.add(state.guiParams, "mutation strength", 0, 1);
+gui.add(state.guiParams, "pixels per cell", 1, 12).onChange( value => {
     cellsTargetParams.scale = (
-        1 / guiParams["pixels per cell"] / window.devicePixelRatio
+        1 / state.guiParams["pixels per cell"] / window.devicePixelRatio
     );
 });
 
@@ -92,7 +109,7 @@ gui.onChange(() => {
 });
 
 const cellsTargetParams = {
-    scale: 1 / guiParams["pixels per cell"] / window.devicePixelRatio,
+    scale: 1 / state.guiParams["pixels per cell"] / window.devicePixelRatio,
     format: "rgba32f",
     story: 2,
     tag: "cells",
@@ -106,7 +123,9 @@ function setup() {
         FP: "hash(ivec3(I, seed)), 1"
     }, { ...cellsTargetParams });
 
-    paramsHistory.push(newParams());
+    if (!state.paramsHistory.length) {
+        state.paramsHistory.push(newParams());
+    }
     frameRate(60);
 
     addEventListener("contextmenu", e => {
@@ -116,7 +135,7 @@ function setup() {
     setTimeout(() => {
         windowResized();
     }, 100);
-};
+}
 
 function newParams() {
     const paramSets = {
@@ -160,7 +179,6 @@ function newParams() {
             paramSets.encoded = paramSets.encoded.concat(params[name]);
         }
     }
-    paramSets.encoded = new Float32Array(paramSets.encoded);
 
     return paramSets;
 }
@@ -171,7 +189,7 @@ function mutateParams(selectedParams) {
         encoded: [],
     }
     const sp = selectedParams;
-    const amt = guiParams["mutation strength"];
+    const amt = state.guiParams["mutation strength"];
     for (let k = 0; k < 9; k++) {
         const perceptDists = [], perceptSharp = [];
         const w1 = [], bias1 = [], w2 = [], bias2 = [];
@@ -209,7 +227,6 @@ function mutateParams(selectedParams) {
             paramSets.encoded = paramSets.encoded.concat(params[name]);
         }
     }
-    paramSets.encoded = new Float32Array(paramSets.encoded);
 
     return paramSets;
 }
@@ -227,9 +244,11 @@ function mousePressed(e) {
         const tileX = min(max(int(mouseX / windowWidth * 3), 0), 2);
         const tileY = min(max(int(mouseY / windowHeight * 3), 0), 2);
         const tileIdx = tileY * 3 + tileX;
-        const selectedParams = paramsHistory[historyIdx].objects[tileIdx];
-        paramsHistory.push(mutateParams(selectedParams));
-        historyIdx = paramsHistory.length - 1;
+        const selectedParams = (
+            state.paramsHistory[state.historyIdx].objects[tileIdx]
+        );
+        state.paramsHistory.push(mutateParams(selectedParams));
+        state.historyIdx = state.paramsHistory.length - 1;
         guiButtons.reseed();
     }
 }
@@ -272,7 +291,7 @@ function keyPressed(e) {
 function step() {
     targetMass = glsl({
         cells: cells[0],
-        p: paramsHistory[historyIdx].encoded,
+        p: state.paramsHistory[state.historyIdx].encoded,
         FP: `
         uniform vec3 p[297];
 
@@ -435,17 +454,17 @@ function interact() {
 }
 
 function draw() {
-    if (!pause) { step(); }
+    if (!state.pause) { step(); }
     interact();
 
     glsl({
         cells: cells[0],
         FP: "cells(UV)",
     });
-};
+}
 
 function windowResized() {
     resizeCanvas(window.innerWidth, window.innerHeight);
-};
+}
 
 </script>

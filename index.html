@@ -88,13 +88,15 @@ const guiButtons = {
 };
 
 const gui = new lil.GUI();
+gui.domElement.classList.add("force-touch-styles");
+gui.close();
 
 for (const name in guiButtons) {
     gui.add(guiButtons, name);
 }
 gui.add(state.guiParams, "filename");
 gui.add(state.guiParams, "reseed on next/last params");
-gui.add(state.guiParams, "mutation strength", 0, 1);
+gui.add(state.guiParams, "mutation strength", 0, 1).step(0.001);
 gui.add(state.guiParams, "pixels per cell", 1, 12).onChange( value => {
     cellsTargetParams.scale = (
         1 / state.guiParams["pixels per cell"] / window.devicePixelRatio

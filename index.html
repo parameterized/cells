@@ -432,7 +432,7 @@ function step() {
             vec3 giveDir = mix(
                 targetGiveDir,
                 gravGiveDir,
-                (1.0 - abs(float(dir.x))) * (1.0 - mass)
+                (1.0 - abs(float(dir.x))) * (1.0 - mass) * abs(gravity)
             );
 
             return giveDir;

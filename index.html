@@ -108,7 +108,10 @@ gui.add(state.guiParams, "pixels per cell", 1, 12).onChange( value => {
 gui.add(state.guiParams, "gravity", -1, 1, 0.1);
 gui.add(state.guiParams, "solid vertical borders");
 
-gui.onChange(() => {
+gui.onChange(event => {
+    if (event.property === "filename") {
+        return;
+    }
     for (const elt of [
         ...document.getElementsByTagName("button"),
         ...document.getElementsByTagName("input"),

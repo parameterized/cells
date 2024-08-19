@@ -96,6 +96,7 @@ state.guiParams = state.guiParams || {
     "pixels per cell": 6,
     gravity: 0,
     "solid vertical borders": false,
+    "postprocess colors": false,
 };
 gui.add(state.guiParams, "filename");
 gui.add(state.guiParams, "reseed on next/last params");
@@ -107,6 +108,7 @@ gui.add(state.guiParams, "pixels per cell", 1, 12).onChange( value => {
 });
 gui.add(state.guiParams, "gravity", -1, 1, 0.1);
 gui.add(state.guiParams, "solid vertical borders");
+gui.add(state.guiParams, "postprocess colors");
 
 gui.onChange(event => {
     if (event.property === "filename") {
@@ -494,10 +496,23 @@ function draw() {
     if (!state.pause) { step(); }
     interact();
 
-    glsl({
-        cells: cells[0],
-        FP: "cells(UV)",
-    });
+    if (state.guiParams["postprocess colors"]) {
+        glsl({
+            cells: cells[0],
+            FP: `
+            vec3 color = cells(UV).rgb;
+            vec3 colorMinusWhite = (color - vec3(1));
+            vec3 colorMWNorm = normalize(colorMinusWhite);
+            float colorMWLen = length(colorMinusWhite);
+            float newLen = 1.2 + 0.7 * tanh(colorMWLen - 1.0);
+            FOut = vec4(vec3(1) + colorMWNorm * newLen, 1);
+        `});
+    } else {
+        glsl({
+            cells: cells[0],
+            FP: "cells(UV)",
+        });
+    }
 }
 
 function windowResized() {

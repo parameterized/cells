@@ -97,6 +97,7 @@ state.guiParams = state.guiParams || {
     gravity: 0,
     "solid vertical borders": false,
     "postprocess colors": false,
+    tile: 2,
 };
 gui.add(state.guiParams, "filename");
 gui.add(state.guiParams, "reseed on next/last params");
@@ -109,6 +110,9 @@ gui.add(state.guiParams, "pixels per cell", 1, 12).onChange( value => {
 gui.add(state.guiParams, "gravity", -1, 1, 0.1);
 gui.add(state.guiParams, "solid vertical borders");
 gui.add(state.guiParams, "postprocess colors");
+gui.add(state.guiParams, "tile", 1, 4, 1).onChange(value => {
+    guiButtons["new params"]();
+});
 
 gui.onChange(event => {
     if (event.property === "filename") {
@@ -154,7 +158,7 @@ function newParams() {
         objects: [],
         encoded: [],
     }
-    for (let k = 0; k < 9; k++) {
+    for (let k = 0; k < state.guiParams.tile**2; k++) {
         const perceptDists = [], perceptSharp = [];
         const w1 = [], bias1 = [], w2 = [], bias2 = [];
 
@@ -202,7 +206,7 @@ function mutateParams(selectedParams) {
     }
     const sp = selectedParams;
     const amt = state.guiParams["mutation strength"];
-    for (let k = 0; k < 9; k++) {
+    for (let k = 0; k < state.guiParams.tile**2; k++) {
         const perceptDists = [], perceptSharp = [];
         const w1 = [], bias1 = [], w2 = [], bias2 = [];
 
@@ -253,9 +257,10 @@ function mousePressed(e) {
     }
     
     if (e.button === 2) {
-        const tileX = min(max(int(mouseX / windowWidth * 3), 0), 2);
-        const tileY = min(max(int(mouseY / windowHeight * 3), 0), 2);
-        const tileIdx = tileY * 3 + tileX;
+        const tile = state.guiParams.tile;
+        const tileX = min(max(int(mouseX / windowWidth * tile), 0), tile - 1);
+        const tileY = min(max(int(mouseY / windowHeight * tile), 0), tile - 1);
+        const tileIdx = tileY * tile + tileX;
         const selectedParams = (
             state.paramsHistory[state.historyIdx].objects[tileIdx]
         );
@@ -304,13 +309,15 @@ function step() {
     targetMass = glsl({
         cells: cells[0],
         p: state.paramsHistory[state.historyIdx].encoded,
+        tile: state.guiParams.tile,
         FP: `
-        uniform vec3 p[297];
+        uniform vec3 p[${33 * state.guiParams.tile**2}];
+        uniform int tile;
 
         void fragment() {
-            int paramGridX = min(max(int(UV.x * 3.0), 0), 2);
-            int paramGridY = min(max(int(UV.y * 3.0), 0), 2);
-            int o = ((2 - paramGridY) * 3 + paramGridX) * 33;
+            int paramGridX = min(max(int(UV.x * float(tile)), 0), tile - 1);
+            int paramGridY = min(max(int(UV.y * float(tile)), 0), tile - 1);
+            int o = ((tile - 1 - paramGridY) * tile + paramGridX) * 33;
 
             mat3 perceptDists = mat3(p[o+0], p[o+1], p[o+2]);
             mat3 perceptSharp = mat3(p[o+3], p[o+4], p[o+5]);

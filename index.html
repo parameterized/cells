@@ -104,6 +104,7 @@ state.guiParams = state.guiParams || {
     "postprocess colors": false,
     tile: 2,
     "target steps/sec": 60,
+    "brush size": 0.1,
 };
 gui.add(state.guiParams, "filename");
 gui.add(state.guiParams, "reseed on next/last params");
@@ -120,6 +121,7 @@ gui.add(state.guiParams, "tile", 1, 4, 1);
 gui.add(state.guiParams, "target steps/sec", 30, 2000, 1);
 const fpsController = gui.add({ "frames/sec": 0 }, "frames/sec").disable();
 const spsController = gui.add({ "steps/sec": 0 }, "steps/sec").disable();
+gui.add(state.guiParams, "brush size", 0.01, 0.5, 0.01);
 
 
 gui.onChange(event => {
@@ -490,6 +492,7 @@ function interact() {
         glsl({
             seed: Math.random() * 12417,
             mouseSquare: [mxSquare, mySquare],
+            brushSize: state.guiParams["brush size"],
             cells: cells[1],
             FP: `
             vec2 size = vec2(cells_size());
@@ -499,7 +502,7 @@ function interact() {
                 ? vec2(0.5 + (UV.x - 0.5) * aspect, UV.y)
                 : vec2(UV.x, 0.5 + (UV.y - 0.5) / aspect)
             );
-            if (distance(uvSquare, mouseSquare) < 0.1) {
+            if (distance(uvSquare, mouseSquare) < brushSize) {
                 FOut = vec4(hash(ivec3(I, seed)), 1);
             } else {
                 FOut = cells(I);

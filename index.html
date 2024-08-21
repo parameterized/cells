@@ -29,13 +29,18 @@
 const sauce = document.documentElement.innerHTML;
 const state = {};
 
-let canvas;
-let glsl, cells, targetMass;
-
 const mouseButtonsDown = { 0: false, 1: false, 2: false };
 
 state.paramsHistory = state.paramsHistory || [];
 state.historyIdx = state.historyIdx || 0;
+
+let canvas;
+let glsl, cells, targetMass;
+
+let frameCount = 0;
+let stepCount = 0;
+let lastCountsUpdate = 0;
+let stepTimer = 0;
 
 const guiButtons = {
     "new params": () => {
@@ -98,19 +103,24 @@ state.guiParams = state.guiParams || {
     "solid vertical borders": false,
     "postprocess colors": false,
     tile: 2,
+    "target steps/sec": 60,
 };
 gui.add(state.guiParams, "filename");
 gui.add(state.guiParams, "reseed on next/last params");
 gui.add(state.guiParams, "mutation strength", 0, 1, 0.001);
-gui.add(state.guiParams, "pixels per cell", 1, 12).onChange( value => {
+gui.add(state.guiParams, "pixels per cell", 1, 12, 0.1).onChange( value => {
     cellsTargetParams.scale = (
         1 / state.guiParams["pixels per cell"] / window.devicePixelRatio
     );
 });
-gui.add(state.guiParams, "gravity", -1, 1, 0.1);
+gui.add(state.guiParams, "gravity", -1, 1, 0.05);
 gui.add(state.guiParams, "solid vertical borders");
 gui.add(state.guiParams, "postprocess colors");
 gui.add(state.guiParams, "tile", 1, 4, 1);
+gui.add(state.guiParams, "target steps/sec", 30, 2000, 1);
+const fpsController = gui.add({ "frames/sec": 0 }, "frames/sec").disable();
+const spsController = gui.add({ "steps/sec": 0 }, "steps/sec").disable();
+
 
 gui.onChange(event => {
     if (event.property === "filename") {
@@ -499,7 +509,17 @@ function interact() {
 }
 
 function draw() {
-    if (!state.pause) { step(); }
+    stepTimer = max(stepTimer - deltaTime, -1000 / 30);
+    const startMillis = millis()
+    while (
+        !state.pause
+        && stepTimer < 0
+        && millis() - startMillis < 1000 / 30
+    ) {
+        step();
+        stepCount++;
+        stepTimer += 1000 / state.guiParams["target steps/sec"];
+    }
     interact();
 
     if (state.guiParams["postprocess colors"]) {
@@ -518,6 +538,15 @@ function draw() {
             cells: cells[0],
             FP: "cells(UV)",
         });
+    }
+    
+    frameCount++;
+    if (millis() - lastCountsUpdate >= 1000) {
+        lastCountsUpdate = millis();
+        fpsController.setValue(frameCount);
+        spsController.setValue(stepCount);
+        frameCount = 0;
+        stepCount = 0;
     }
 }
 

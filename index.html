@@ -110,9 +110,7 @@ gui.add(state.guiParams, "pixels per cell", 1, 12).onChange( value => {
 gui.add(state.guiParams, "gravity", -1, 1, 0.1);
 gui.add(state.guiParams, "solid vertical borders");
 gui.add(state.guiParams, "postprocess colors");
-gui.add(state.guiParams, "tile", 1, 4, 1).onChange(value => {
-    guiButtons["new params"]();
-});
+gui.add(state.guiParams, "tile", 1, 4, 1);
 
 gui.onChange(event => {
     if (event.property === "filename") {
@@ -399,6 +397,7 @@ function step() {
         seed: Math.random() * 12417,
         gravity: state.guiParams.gravity,
         solidVerticalBorders: state.guiParams["solid vertical borders"],
+        tile: state.guiParams.tile,
         FP: `
         vec3 massTransfer(ivec2 pos, ivec2 dir) {
             pos = (pos + Src_size()) % Src_size();
@@ -406,8 +405,8 @@ function step() {
 
             vec2 posUV = (vec2(pos) + vec2(0.5)) / vec2(targetMass_size());
             vec2 dirUV = (vec2(dirPos) + vec2(0.5)) / vec2(targetMass_size());
-            int gridY = int(floor(posUV.y * 3.0));
-            int gridYDir = int(floor(dirUV.y * 3.0));
+            int gridY = int(floor(posUV.y * tile));
+            int gridYDir = int(floor(dirUV.y * tile));
             if (solidVerticalBorders && gridYDir != gridY) {
                 return vec3(0);
             }

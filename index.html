@@ -221,22 +221,46 @@ function mutateParams(selectedParams) {
         const w1 = [], bias1 = [], w2 = [], bias2 = [];
 
         for (let i = 0; i < 3 * 3; i++) {
-            perceptDists.push(lerp(sp.perceptDists[i], random(), amt));
+            perceptDists.push(
+                min(max(
+                    sp.perceptDists[i] + random(-0.5, 0.5) * amt,
+                0), 1)
+            )
         }
         for (let i = 0; i < 3 * 3; i++) {
-            perceptSharp.push(lerp(sp.perceptSharp[i], random(4, 16), amt));
+            perceptSharp.push(
+                min(max(
+                    sp.perceptSharp[i] + random(-6, 6) * amt,
+                4), 16)
+            )
         }
         for (let i = 0; i < 9 * 6; i++) {
-            w1.push(lerp(sp.w1[i], random(-1, 1) * 10, amt));
+            w1.push(
+                min(max(
+                    sp.w1[i] + random(-10, 10) * amt,
+                -10), 10)
+            )
         }
         for (let i = 0; i < 6; i++) {
-            bias1.push(lerp(sp.bias1[i], random(), amt));
+            bias1.push(
+                min(max(
+                    sp.bias1[i] + random(-0.5, 0.5) * amt,
+                0), 1)
+            )
         }
         for (let i = 0; i < 6 * 3; i++) {
-            w2.push(lerp(sp.w2[i], random(-1, 1) * 10, amt));
+            w2.push(
+                min(max(
+                    sp.w2[i] + random(-10, 10) * amt,
+                -10), 10)
+            )
         }
         for (let i = 0; i < 3; i++) {
-            bias2.push(lerp(sp.bias2[i], random(), amt));
+            bias2.push(
+                min(max(
+                    sp.bias2[i] + random(-0.5, 0.5) * amt,
+                0), 1)
+            )
         }
 
         paramSets.objects.push({

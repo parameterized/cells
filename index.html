@@ -88,6 +88,7 @@ const guiButtons = {
 
 const gui = new lil.GUI();
 gui.domElement.classList.add("force-touch-styles");
+gui.domElement.onclick = e => e.target.blur();
 gui.close();
 
 for (const name in guiButtons) {

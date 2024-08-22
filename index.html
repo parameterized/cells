@@ -26,73 +26,73 @@
 <body>
 
 <script>
-const sauce = document.documentElement.innerHTML;
-const state = {};
+const sauce = document.documentElement.innerHTML
+const state = {}
 
-const mouseButtonsDown = { 0: false, 1: false, 2: false };
+const mouseButtonsDown = { 0: false, 1: false, 2: false }
 
-state.paramsHistory = state.paramsHistory || [];
-state.historyIdx = state.historyIdx || 0;
+state.paramsHistory = state.paramsHistory || []
+state.historyIdx = state.historyIdx || 0
 
-let canvas;
-let glsl, cells, targetMass;
+let canvas
+let glsl, cells, targetMass
 
-let frameCount = 0;
-let stepCount = 0;
-let lastCountsUpdate = 0;
-let stepTimer = 0;
+let frameCount = 0
+let stepCount = 0
+let lastCountsUpdate = 0
+let stepTimer = 0
 
 const guiButtons = {
     "new params": () => {
-        state.paramsHistory.push(newParams());
-        state.historyIdx = state.paramsHistory.length - 1;
-        guiButtons.reseed();
+        state.paramsHistory.push(newParams())
+        state.historyIdx = state.paramsHistory.length - 1
+        guiButtons.reseed()
     },
     "last params": () => {
-        if (state.historyIdx === 0) { return; }
-        state.historyIdx = max(state.historyIdx - 1, 0);
+        if (state.historyIdx === 0) { return }
+        state.historyIdx = max(state.historyIdx - 1, 0)
         if (state.guiParams["reseed on next/last params"]) {
-            guiButtons.reseed();
+            guiButtons.reseed()
         }
     },
     "next params": () => {
-        if (state.historyIdx === state.paramsHistory.length - 1) { return; }
+        if (state.historyIdx === state.paramsHistory.length - 1) { return }
         state.historyIdx = min(
             state.historyIdx + 1,
             state.paramsHistory.length - 1
-        );
+        )
         if (state.guiParams["reseed on next/last params"]) {
-            guiButtons.reseed();
+            guiButtons.reseed()
         }
     },
     reseed: () => {
-        glsl({ FP: "0" }, cells);
-        step();
+        glsl({ FP: "0" }, cells)
+        step()
     },
     pause: () => {
-        state.pause = !state.pause;
+        state.pause = !state.pause
     },
     step,
     save: () => {
         const sauceWithState = sauce.replace(
             /(?<=const state = ).*/,
-            `JSON.parse('${JSON.stringify(state)}');`
-        );
-        const a = document.createElement("a");
+            `JSON.parse('${JSON.stringify(state)}')`
+        )
+        const a = document.createElement("a")
         const bob = new Blob([sauceWithState], {type: "text/plain"})
-        a.setAttribute("href", URL.createObjectURL(bob));
-        a.setAttribute("download", `${state.guiParams.filename}.html`);
-        a.click();
+        a.setAttribute("href", URL.createObjectURL(bob))
+        a.setAttribute("download", `${state.guiParams.filename}.html`)
+        a.click()
     },
-};
+}
 
-const gui = new lil.GUI();
-gui.domElement.classList.add("force-touch-styles");
-gui.domElement.onclick = e => e.target.blur();
-gui.close();
+const gui = new lil.GUI()
+gui.domElement.classList.add("force-touch-styles")
+gui.domElement.onclick = e => e.target.blur()
+gui.close()
 
 for (const name in guiButtons) {
-    gui.add(guiButtons, name);
+    gui.add(guiButtons, name)
 }
 
 state.guiParams = state.guiParams || {
@@ -106,62 +106,62 @@ state.guiParams = state.guiParams || {
     tile: 2,
     "target steps/sec": 60,
     "brush size": 0.1,
-};
-gui.add(state.guiParams, "filename");
-gui.add(state.guiParams, "reseed on next/last params");
-gui.add(state.guiParams, "mutation strength", 0, 1, 0.001);
+}
+gui.add(state.guiParams, "filename")
+gui.add(state.guiParams, "reseed on next/last params")
+gui.add(state.guiParams, "mutation strength", 0, 1, 0.001)
 gui.add(state.guiParams, "pixels per cell", 1, 12, 0.1).onChange( value => {
     cellsTargetParams.scale = (
         1 / state.guiParams["pixels per cell"] / window.devicePixelRatio
-    );
-});
-gui.add(state.guiParams, "gravity", -1, 1, 0.05);
-gui.add(state.guiParams, "solid vertical borders");
-gui.add(state.guiParams, "postprocess colors");
-gui.add(state.guiParams, "tile", 1, 4, 1);
-gui.add(state.guiParams, "target steps/sec", 30, 2000, 1);
-const fpsController = gui.add({ "frames/sec": 0 }, "frames/sec").disable();
-const spsController = gui.add({ "steps/sec": 0 }, "steps/sec").disable();
-gui.add(state.guiParams, "brush size", 0.01, 0.5, 0.01);
+    )
+})
+gui.add(state.guiParams, "gravity", -1, 1, 0.05)
+gui.add(state.guiParams, "solid vertical borders")
+gui.add(state.guiParams, "postprocess colors")
+gui.add(state.guiParams, "tile", 1, 4, 1)
+gui.add(state.guiParams, "target steps/sec", 30, 2000, 1)
+const fpsController = gui.add({ "frames/sec": 0 }, "frames/sec").disable()
+const spsController = gui.add({ "steps/sec": 0 }, "steps/sec").disable()
+gui.add(state.guiParams, "brush size", 0.01, 0.5, 0.01)
 
 
 gui.onChange(event => {
     if (event.property === "filename") {
-        return;
+        return
     }
     for (const elt of [
         ...document.getElementsByTagName("button"),
         ...document.getElementsByTagName("input"),
-    ]) { elt.blur(); }
-});
+    ]) { elt.blur() }
+})
 
 const cellsTargetParams = {
     scale: 1 / state.guiParams["pixels per cell"] / window.devicePixelRatio,
     format: "rgba32f",
     story: 2,
     tag: "cells",
-};
+}
 
 function setup() {
-    canvas = createCanvas(windowWidth, windowHeight, WEBGL);
-    glsl = SwissGL(canvas.elt);
+    canvas = createCanvas(windowWidth, windowHeight, WEBGL)
+    glsl = SwissGL(canvas.elt)
     cells = glsl({
         seed: Math.random() * 12417,
         FP: "hash(ivec3(I, seed)), 1"
-    }, { ...cellsTargetParams });
+    }, { ...cellsTargetParams })
 
     if (!state.paramsHistory.length) {
-        state.paramsHistory.push(newParams());
+        state.paramsHistory.push(newParams())
     }
-    frameRate(60);
+    frameRate(60)
 
     addEventListener("contextmenu", e => {
-        e.preventDefault();
-    });
+        e.preventDefault()
+    })
 
     setTimeout(() => {
-        windowResized();
-    }, 100);
+        windowResized()
+    }, 100)
 }
 
 function newParams() {
@@ -170,44 +170,44 @@ function newParams() {
         encoded: [],
     }
     for (let k = 0; k < state.guiParams.tile**2; k++) {
-        const perceptDists = [], perceptSharp = [];
-        const w1 = [], bias1 = [], w2 = [], bias2 = [];
+        const perceptDists = [], perceptSharp = []
+        const w1 = [], bias1 = [], w2 = [], bias2 = []
 
         for (let i = 0; i < 3 * 3; i++) {
-            perceptDists.push(random());
+            perceptDists.push(random())
         }
         for (let i = 0; i < 3 * 3; i++) {
-            perceptSharp.push(random(4, 16));
+            perceptSharp.push(random(4, 16))
         }
         for (let i = 0; i < 9 * 6; i++) {
-            w1.push(random(-1, 1) * 10);
+            w1.push(random(-1, 1) * 10)
         }
         for (let i = 0; i < 6; i++) {
-            bias1.push(random());
+            bias1.push(random())
         }
         for (let i = 0; i < 6 * 3; i++) {
-            w2.push(random(-1, 1) * 10);
+            w2.push(random(-1, 1) * 10)
         }
         for (let i = 0; i < 3; i++) {
-            bias2.push(random());
+            bias2.push(random())
         }
 
         paramSets.objects.push({
             perceptDists, perceptSharp,
             w1, bias1,
             w2, bias2,
-        });
+        })
     }
 
     for (const params of paramSets.objects) {
         for (const name of [
             "perceptDists", "perceptSharp", "w1", "bias1", "w2", "bias2"
         ]) {
-            paramSets.encoded = paramSets.encoded.concat(params[name]);
+            paramSets.encoded = paramSets.encoded.concat(params[name])
         }
     }
 
-    return paramSets;
+    return paramSets
 }
 
 function mutateParams(selectedParams) {
@@ -215,11 +215,11 @@ function mutateParams(selectedParams) {
         objects: [],
         encoded: [],
     }
-    const sp = selectedParams;
-    const amt = state.guiParams["mutation strength"];
+    const sp = selectedParams
+    const amt = state.guiParams["mutation strength"]
     for (let k = 0; k < state.guiParams.tile**2; k++) {
-        const perceptDists = [], perceptSharp = [];
-        const w1 = [], bias1 = [], w2 = [], bias2 = [];
+        const perceptDists = [], perceptSharp = []
+        const w1 = [], bias1 = [], w2 = [], bias2 = []
 
         for (let i = 0; i < 3 * 3; i++) {
             perceptDists.push(
@@ -268,46 +268,46 @@ function mutateParams(selectedParams) {
             perceptDists, perceptSharp,
             w1, bias1,
             w2, bias2,
-        });
+        })
     }
 
     for (const params of paramSets.objects) {
         for (const name of [
             "perceptDists", "perceptSharp", "w1", "bias1", "w2", "bias2"
         ]) {
-            paramSets.encoded = paramSets.encoded.concat(params[name]);
+            paramSets.encoded = paramSets.encoded.concat(params[name])
         }
     }
 
-    return paramSets;
+    return paramSets
 }
 
 function mousePressed(e) {
-    if (e.target !== canvas.elt) { return; }
+    if (e.target !== canvas.elt) { return }
     if (e.detail > 1) {
-        e.preventDefault();
+        e.preventDefault()
     }
     if (e.button in mouseButtonsDown) {
-        mouseButtonsDown[e.button] = true;
+        mouseButtonsDown[e.button] = true
     }
-    
+
     if (e.button === 2) {
-        const tile = state.guiParams.tile;
-        const tileX = min(max(int(mouseX / windowWidth * tile), 0), tile - 1);
-        const tileY = min(max(int(mouseY / windowHeight * tile), 0), tile - 1);
-        const tileIdx = tileY * tile + tileX;
+        const tile = state.guiParams.tile
+        const tileX = min(max(int(mouseX / windowWidth * tile), 0), tile - 1)
+        const tileY = min(max(int(mouseY / windowHeight * tile), 0), tile - 1)
+        const tileIdx = tileY * tile + tileX
         const selectedParams = (
             state.paramsHistory[state.historyIdx].objects[tileIdx]
-        );
-        state.paramsHistory.push(mutateParams(selectedParams));
-        state.historyIdx = state.paramsHistory.length - 1;
-        guiButtons.reseed();
+        )
+        state.paramsHistory.push(mutateParams(selectedParams))
+        state.historyIdx = state.paramsHistory.length - 1
+        guiButtons.reseed()
     }
 }
 
 function mouseReleased(e) {
     if (e.button in mouseButtonsDown) {
-        mouseButtonsDown[e.button] = false;
+        mouseButtonsDown[e.button] = false
     }
 }
 
@@ -316,27 +316,27 @@ function mouseIsDown(button) {
     if (button === undefined) {
         for (const b in mouseButtonsDown) {
             if (mouseButtonsDown[b]) {
-                return true;
+                return true
             }
         }
-        return false;
+        return false
     }
-    return button in mouseButtonsDown && mouseButtonsDown[button];
+    return button in mouseButtonsDown && mouseButtonsDown[button]
 }
 
 function keyPressed(e) {
     if (key === "f") {
-        guiButtons["new params"]();
+        guiButtons["new params"]()
     } else if (key === "ArrowLeft") {
-        guiButtons["last params"]();
+        guiButtons["last params"]()
     } else if (key === "ArrowRight") {
-        guiButtons["next params"]();
+        guiButtons["next params"]()
     } else if (key === "r") {
-        guiButtons.reseed();
+        guiButtons.reseed()
     } else if (key === " ") {
-        guiButtons.pause();
+        guiButtons.pause()
     } else if (key === "s") {
-        guiButtons.step();
+        guiButtons.step()
     }
 }
 
@@ -427,7 +427,7 @@ function step() {
         size: cells[0].size,
         format: "rgba32f",
         tag: "targetMass",
-    });
+    })
 
     cells = glsl({
         targetMass,
@@ -499,20 +499,20 @@ function step() {
                 );
             }
         }
-    `}, { ...cellsTargetParams });
+    `}, { ...cellsTargetParams })
 }
 
 function interact() {
     if (mouseIsDown(0)) {
-        const aspect = windowWidth / windowHeight;
-        const ww = windowWidth, wh = windowHeight;
-        let mxSquare, mySquare;
+        const aspect = windowWidth / windowHeight
+        const ww = windowWidth, wh = windowHeight
+        let mxSquare, mySquare
         if (aspect > 1) {
-            mxSquare = (ww / 2 + (mouseX - ww / 2) * aspect) / ww;
-            mySquare = 1 - mouseY / wh;
+            mxSquare = (ww / 2 + (mouseX - ww / 2) * aspect) / ww
+            mySquare = 1 - mouseY / wh
         } else {
-            mxSquare = mouseX / ww;
-            mySquare = 1 - (wh / 2 + (mouseY - wh / 2) / aspect) / wh;
+            mxSquare = mouseX / ww
+            mySquare = 1 - (wh / 2 + (mouseY - wh / 2) / aspect) / wh
         }
         glsl({
             seed: Math.random() * 12417,
@@ -532,23 +532,23 @@ function interact() {
             } else {
                 FOut = cells(I);
             }
-        `}, cells[0]);
+        `}, cells[0])
     }
 }
 
 function draw() {
-    stepTimer = max(stepTimer - deltaTime, -1000 / 30);
+    stepTimer = max(stepTimer - deltaTime, -1000 / 30)
     const startMillis = millis()
     while (
         !state.pause
         && stepTimer < 0
         && millis() - startMillis < 1000 / 30
     ) {
-        step();
-        stepCount++;
-        stepTimer += 1000 / state.guiParams["target steps/sec"];
+        step()
+        stepCount++
+        stepTimer += 1000 / state.guiParams["target steps/sec"]
     }
-    interact();
+    interact()
 
     if (state.guiParams["postprocess colors"]) {
         glsl({
@@ -560,26 +560,26 @@ function draw() {
             float colorMWLen = length(colorMinusWhite);
             float newLen = 1.2 + 0.7 * tanh(colorMWLen - 1.0);
             FOut = vec4(vec3(1) + colorMWNorm * newLen, 1);
-        `});
+        `})
     } else {
         glsl({
             cells: cells[0],
             FP: "cells(UV)",
-        });
+        })
     }
-    
-    frameCount++;
+
+    frameCount++
     if (millis() - lastCountsUpdate >= 1000) {
-        lastCountsUpdate = millis();
-        fpsController.setValue(frameCount);
-        spsController.setValue(stepCount);
-        frameCount = 0;
-        stepCount = 0;
+        lastCountsUpdate = millis()
+        fpsController.setValue(frameCount)
+        spsController.setValue(stepCount)
+        frameCount = 0
+        stepCount = 0
     }
 }
 
 function windowResized() {
-    resizeCanvas(window.innerWidth, window.innerHeight);
+    resizeCanvas(window.innerWidth, window.innerHeight)
 }
 
 </script>

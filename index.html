@@ -88,7 +88,11 @@ const guiButtons = {
 
 const gui = new lil.GUI()
 gui.domElement.classList.add("force-touch-styles")
-gui.domElement.onclick = e => e.target.blur()
+gui.domElement.onclick = e => {
+    if (e.target.tagName === "DIV") {
+        e.target.blur()
+    }
+}
 gui.close()
 
 for (const name in guiButtons) {
@@ -125,14 +129,15 @@ const spsController = gui.add({ "steps/sec": 0 }, "steps/sec").disable()
 gui.add(state.guiParams, "brush size", 0.01, 0.5, 0.01)
 
 
-gui.onChange(event => {
-    if (event.property === "filename") {
-        return
-    }
+gui.onChange(e => {
     for (const elt of [
         ...document.getElementsByTagName("button"),
         ...document.getElementsByTagName("input"),
-    ]) { elt.blur() }
+    ]) {
+        if (elt.type !== "text") {
+            elt.blur()
+        }
+    }
 })
 
 const cellsTargetParams = {
@@ -337,6 +342,8 @@ function keyPressed(e) {
         guiButtons.pause()
     } else if (key === "s") {
         guiButtons.step()
+    } else if (key === "Backspace") {
+        e.preventDefault()
     }
 }
 

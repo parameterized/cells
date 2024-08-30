@@ -192,30 +192,22 @@ function newParams() {
         encoded: [],
     }
     for (let k = 0; k < state.guiParams.tile**2; k++) {
-        const perceptDists = [], perceptSharp = []
         const w1 = [], bias1 = [], w2 = [], bias2 = []
 
-        for (let i = 0; i < 3 * 3; i++) {
-            perceptDists.push(random())
-        }
-        for (let i = 0; i < 3 * 3; i++) {
-            perceptSharp.push(random(4, 16))
-        }
         for (let i = 0; i < 9 * 6; i++) {
-            w1.push(random(-1, 1) * 10)
+            w1.push(random(-1, 1))
         }
         for (let i = 0; i < 6; i++) {
             bias1.push(random())
         }
         for (let i = 0; i < 6 * 3; i++) {
-            w2.push(random(-1, 1) * 10)
+            w2.push(random(-1, 1))
         }
         for (let i = 0; i < 3; i++) {
             bias2.push(random())
         }
 
         paramSets.objects.push({
-            perceptDists, perceptSharp,
             w1, bias1,
             w2, bias2,
         })
@@ -223,7 +215,7 @@ function newParams() {
 
     for (const params of paramSets.objects) {
         for (const name of [
-            "perceptDists", "perceptSharp", "w1", "bias1", "w2", "bias2"
+            "w1", "bias1", "w2", "bias2"
         ]) {
             paramSets.encoded = paramSets.encoded.concat(params[name])
         }
@@ -240,28 +232,13 @@ function mutateParams(selectedParams) {
     const sp = selectedParams
     const amt = state.guiParams["mutation strength"]
     for (let k = 0; k < state.guiParams.tile**2; k++) {
-        const perceptDists = [], perceptSharp = []
         const w1 = [], bias1 = [], w2 = [], bias2 = []
 
-        for (let i = 0; i < 3 * 3; i++) {
-            perceptDists.push(
-                min(max(
-                    sp.perceptDists[i] + random(-0.5, 0.5) * amt,
-                0), 1)
-            )
-        }
-        for (let i = 0; i < 3 * 3; i++) {
-            perceptSharp.push(
-                min(max(
-                    sp.perceptSharp[i] + random(-6, 6) * amt,
-                4), 16)
-            )
-        }
         for (let i = 0; i < 9 * 6; i++) {
             w1.push(
                 min(max(
-                    sp.w1[i] + random(-10, 10) * amt,
-                -10), 10)
+                    sp.w1[i] + random(-1, 1) * amt,
+                -1), 1)
             )
         }
         for (let i = 0; i < 6; i++) {
@@ -274,8 +251,8 @@ function mutateParams(selectedParams) {
         for (let i = 0; i < 6 * 3; i++) {
             w2.push(
                 min(max(
-                    sp.w2[i] + random(-10, 10) * amt,
-                -10), 10)
+                    sp.w2[i] + random(-1, 1) * amt,
+                -1), 1)
             )
         }
         for (let i = 0; i < 3; i++) {
@@ -287,7 +264,6 @@ function mutateParams(selectedParams) {
         }
 
         paramSets.objects.push({
-            perceptDists, perceptSharp,
             w1, bias1,
             w2, bias2,
         })
@@ -295,7 +271,7 @@ function mutateParams(selectedParams) {
 
     for (const params of paramSets.objects) {
         for (const name of [
-            "perceptDists", "perceptSharp", "w1", "bias1", "w2", "bias2"
+            "w1", "bias1", "w2", "bias2"
         ]) {
             paramSets.encoded = paramSets.encoded.concat(params[name])
         }
@@ -370,73 +346,95 @@ function step() {
         p: state.paramsHistory[state.historyIdx].encoded,
         tile: state.guiParams.tile,
         FP: `
-        uniform vec3 p[${33 * state.guiParams.tile**2}];
+        uniform vec3 p[${27 * state.guiParams.tile**2}];
         uniform int tile;
+        
+        mat3 sobelX = mat3( 
+            1.0, 2.0, 1.0, 
+            0.0, 0.0, 0.0, 
+           -1.0, -2.0, -1.0 
+        );
+        mat3 sobelY = mat3( 
+            1.0, 0.0, -1.0, 
+            2.0, 0.0, -2.0, 
+            1.0, 0.0, -1.0 
+        );
 
         void fragment() {
             int paramGridX = min(max(int(UV.x * float(tile)), 0), tile - 1);
             int paramGridY = min(max(int(UV.y * float(tile)), 0), tile - 1);
-            int o = ((tile - 1 - paramGridY) * tile + paramGridX) * 33;
+            int o = ((tile - 1 - paramGridY) * tile + paramGridX) * 27;
 
-            mat3 perceptDists = mat3(p[o+0], p[o+1], p[o+2]);
-            mat3 perceptSharp = mat3(p[o+3], p[o+4], p[o+5]);
             vec3 w1[18] = vec3[](
+                p[o+0], p[o+1], p[o+2], p[o+3], p[o+4], p[o+5],
                 p[o+6], p[o+7], p[o+8], p[o+9], p[o+10], p[o+11],
-                p[o+12], p[o+13], p[o+14], p[o+15], p[o+16], p[o+17],
-                p[o+18], p[o+19], p[o+20], p[o+21], p[o+22], p[o+23]
+                p[o+12], p[o+13], p[o+14], p[o+15], p[o+16], p[o+17]
             );
-            vec3 bias1[2] = vec3[](p[o+24], p[o+25]);
+            vec3 bias1[2] = vec3[](p[o+18], p[o+19]);
             vec3 w2[6] = vec3[](
-                p[o+26], p[o+27], p[o+28], p[o+29], p[o+30], p[o+31]
+                p[o+20], p[o+21], p[o+22], p[o+23], p[o+24], p[o+25]
             );
-            vec3 bias2 = p[o+32];
+            vec3 bias2 = p[o+26];
 
-            mat3 percept;
-            mat3 perceptDivisor;
+            float angle = 0.0;
+            float cosa = cos(angle);
+            float sina = sin(angle);
+            mat3 sx = cosa * sobelX - sina * sobelY;
+            mat3 sy = sina * sobelX + cosa * sobelY;
 
-            for (int k = 0; k < 81; k++) {
-                ivec2 offset = ivec2(k % 9 - 4, k / 9 - 4);
-                if (offset == ivec2(0)) { continue; }
-                ivec2 neighborPos = (
-                    I + offset + cells_size()
-                ) % cells_size();
+            ivec2 cs = cells_size();
+            vec4 rgb00 = cells((I + ivec2(-1, 1) + cs) % cs);
+            vec4 rgb01 = cells((I + ivec2(-0, 1) + cs) % cs);
+            vec4 rgb02 = cells((I + ivec2(1, 1) + cs) % cs);
+            vec4 rgb10 = cells((I + ivec2(-1, 0) + cs) % cs);
+            vec4 rgb11 = cells((I + ivec2(-0, 0) + cs) % cs);
+            vec4 rgb12 = cells((I + ivec2(1, 0) + cs) % cs);
+            vec4 rgb20 = cells((I + ivec2(-1, -1) + cs) % cs);
+            vec4 rgb21 = cells((I + ivec2(-0, -1) + cs) % cs);
+            vec4 rgb22 = cells((I + ivec2(1, -1) + cs) % cs);
+            mat3 ares = mat3(
+                rgb00.r, rgb01.r, rgb02.r,
+                rgb10.r, rgb11.r, rgb12.r,
+                rgb20.r, rgb21.r, rgb22.r
+            );
+            mat3 gees = mat3(
+                rgb00.g, rgb01.g, rgb02.g,
+                rgb10.g, rgb11.g, rgb12.g,
+                rgb20.g, rgb21.g, rgb22.g
+            );
+            mat3 bees = mat3(
+                rgb00.b, rgb01.b, rgb02.b,
+                rgb10.b, rgb11.b, rgb12.b,
+                rgb20.b, rgb21.b, rgb22.b
+            );
 
-                float dist = length(vec2(offset)) / 5.0;
-                float circleMask = dist <= 1.0 ? 1.0 : 0.0;
-                mat3 shiftedDists = dist - perceptDists;
-                mat3 absDists = mat3(
-                    abs(shiftedDists[0]),
-                    abs(shiftedDists[1]),
-                    abs(shiftedDists[2])
-                );
-                mat3 contribution = mat3(
-                    exp(-perceptSharp[0] * absDists[0]),
-                    exp(-perceptSharp[1] * absDists[1]),
-                    exp(-perceptSharp[2] * absDists[2])
-                ) * circleMask;
-                perceptDivisor += contribution;
+            vec3 perceptSelf = rgb11.rgb;
+            vec3 perceptSX = vec3(
+                dot(sx[0], ares[0]) + dot(sx[1], ares[1]) + dot(sx[2], ares[2]),
+                dot(sx[0], gees[0]) + dot(sx[1], gees[1]) + dot(sx[2], gees[2]),
+                dot(sx[0], bees[0]) + dot(sx[1], bees[1]) + dot(sx[2], bees[2])
+            );
+            vec3 perceptSY = vec3(
+                dot(sy[0], ares[0]) + dot(sy[1], ares[1]) + dot(sy[2], ares[2]),
+                dot(sy[0], gees[0]) + dot(sy[1], gees[1]) + dot(sy[2], gees[2]),
+                dot(sy[0], bees[0]) + dot(sy[1], bees[1]) + dot(sy[2], bees[2])
+            );
 
-                vec3 rgb = cells(neighborPos).rgb;
-                percept += mat3(
-                    contribution[0] * rgb,
-                    contribution[1] * rgb,
-                    contribution[2] * rgb
-                );
-            }
-
-            percept /= perceptDivisor;
-
-            mat3 p = percept;
+            mat3 per = mat3(
+                perceptSelf,
+                perceptSX,
+                perceptSY
+            );
 
             vec3 h0 = max(vec3(0), bias1[0] + vec3(
-                dot(w1[0], p[0]) + dot(w1[1], p[1]) + dot(w1[2], p[2]),
-                dot(w1[3], p[0]) + dot(w1[4], p[1]) + dot(w1[5], p[2]),
-                dot(w1[6], p[0]) + dot(w1[7], p[1]) + dot(w1[8], p[2])
+                dot(w1[0], per[0]) + dot(w1[1], per[1]) + dot(w1[2], per[2]),
+                dot(w1[3], per[0]) + dot(w1[4], per[1]) + dot(w1[5], per[2]),
+                dot(w1[6], per[0]) + dot(w1[7], per[1]) + dot(w1[8], per[2])
             ));
             vec3 h1 = max(vec3(0), bias1[1] + vec3(
-                dot(w1[9], p[0]) + dot(w1[10], p[1]) + dot(w1[11], p[2]),
-                dot(w1[12], p[0]) + dot(w1[13], p[1]) + dot(w1[14], p[2]),
-                dot(w1[15], p[0]) + dot(w1[16], p[1]) + dot(w1[17], p[2])
+                dot(w1[9], per[0]) + dot(w1[10], per[1]) + dot(w1[11], per[2]),
+                dot(w1[12], per[0]) + dot(w1[13], per[1]) + dot(w1[14], per[2]),
+                dot(w1[15], per[0]) + dot(w1[16], per[1]) + dot(w1[17], per[2])
             ));
 
             vec3 targetMass = vec3(
@@ -590,6 +588,33 @@ function draw() {
             cells: cells[0],
             FP: "cells(UV)",
         })
+
+        // let a = atan2(mouseY - windowHeight / 2, mouseX - windowWidth / 2)
+        // console.log(a);
+        // glsl({
+        //     a,
+        //     FP: `
+        //     mat3 sx = mat3( 
+        //         1.0, 2.0, 1.0, 
+        //         0.0, 0.0, 0.0, 
+        //        -1.0, -2.0, -1.0 
+        //     );
+        //     mat3 sy = mat3( 
+        //         1.0, 0.0, -1.0, 
+        //         2.0, 0.0, -2.0, 
+        //         1.0, 0.0, -1.0 
+        //     );
+        //     float c = cos(a);
+        //     float s = sin(a);
+        //     mat3 sxr = c * sx - s * sy;
+        //     mat3 syr = s * sx + c * sy;
+
+        //     int tile_x = int(UV.x * 3.0);
+        //     int tile_y = int((1.0-UV.y) * 3.0);
+        //     float v = syr[tile_y][tile_x];
+        //     FOut = vec4(vec3(v / 4.0 + 0.5), 1);
+        //     `
+        // })
     }
 
     frameCount++

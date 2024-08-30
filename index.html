@@ -73,7 +73,7 @@ const guiButtons = {
         state.pause = !state.pause
     },
     step,
-    save: () => {
+    "save as html": () => {
         const sauceWithState = sauce.replace(
             /(?<=const state = ).*/,
             `JSON.parse('${JSON.stringify(state)}')`
@@ -84,6 +84,16 @@ const guiButtons = {
         a.setAttribute("download", `${state.guiParams.filename}.html`)
         a.click()
     },
+    "save as png": () => {
+        const screenshotData = canvas.elt.toDataURL("image/png").replace(
+            "image/png",
+            "image/octet-stream"
+        )
+        const a = document.createElement("a")
+        a.setAttribute("href", screenshotData)
+        a.setAttribute("download", `${state.guiParams.filename}.png`)
+        a.click()
+    }
 }
 
 const gui = new lil.GUI()

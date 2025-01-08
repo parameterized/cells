@@ -32,6 +32,51 @@
     }   
 </script>
 
+<script>
+// Initialize CLIP pipeline when document loads
+async function initClip() {
+    // try {
+    //     // Try MobileCLIP first
+    //     window.clipPipeline = await pipeline('zero-shot-image-classification', 'mobileclip-small-bn');
+    //     console.log("CLIP pipeline initialized");
+    // } catch (e) {
+    //     console.error("Failed to load MobileCLIP:", e);
+    //     try {
+    //         // Fallback to regular CLIP
+    //         window.clipPipeline = await pipeline('zero-shot-image-classification', 'openai/clip-vit-base-patch32');
+    //         console.log("Fallback CLIP pipeline initialized");
+    //     } catch (e2) {
+    //         console.error("Failed to load CLIP:", e2);
+    //     }
+    // }
+
+    window.classifier = await pipeline('zero-shot-image-classification', 'Xenova/clip-vit-base-patch32');
+    window.url = 'https://huggingface.co/datasets/Xenova/transformers.js-docs/resolve/main/tiger.jpg';
+    window.output = await classifier(url, ['tiger', 'horse', 'dog']);
+    console.log(output);
+}
+
+// Function to get similarity score between canvas and text
+async function getClipScore(canvas, textPrompt) {
+    if (!window.clipPipeline) {
+        console.error("CLIP pipeline not initialized");
+        return 0;
+    }
+    
+    try {
+        const result = await window.clipPipeline(canvas, {
+            candidate_labels: [textPrompt],
+        });
+        return result[0].score;
+    } catch (e) {
+        console.error("CLIP scoring failed:", e);
+        return 0;
+    }
+}
+
+document.addEventListener('DOMContentLoaded', initClip);
+</script>
+
 <!-- lil-gui icons will break if the below comment is removed -->
 <!-- ✓ -->
 <!-- and gui init has to happen after body is created -->

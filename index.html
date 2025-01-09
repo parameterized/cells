@@ -23,17 +23,9 @@
 <script type="module">
     import { pipeline, env } from "./lib/transformers.js"
     window.pipeline = pipeline
-    // env.allowRemoteModels = false
     env.allowLocalModels = true
     env.localModelPath = "lib/models"
-
-    // Enable web worker for async processing
-    // env.backends = env.backends || {}
-    // env.backends.onnx = env.backends.onnx || {}
-    // env.backends.onnx.wasm = env.backends.onnx.wasm || {}
-    // env.backends.onnx.wasm.numThreads = 4
-    env.backends.onnx.wasm.proxy = true // Use web worker
-    // env.useBrowserCache = false // Disable cache to prevent lag spikes from cache writes
+    env.backends.onnx.wasm.proxy = true
 </script>
 <script type="module">
     if (typeof window.pipeline !== "function") {
@@ -43,79 +35,58 @@
                 window.pipeline = pipeline
                 env.allowLocalModels = true
                 env.localModelPath = "lib/models"
+                env.backends.onnx.wasm.proxy = true
             })
     }   
 </script>
 
 <script>
 
-// Log network requests to huggingface
-const origFetch = window.fetch;
-window.fetch = async (...args) => {
-    const [resource, config] = args;
-    if (resource.includes('huggingface.co')) {
-        // Only allow the tiger image test
-        if (!resource.includes('tiger.jpg')) {
-            console.error('Blocked remote fetch:', resource);
-            throw new Error(`Remote model fetch blocked: ${resource}`);
-        }
-        console.log('Allowed remote fetch (tiger image):', resource);
-    }
-    return origFetch.apply(window, args);
-};
-
-// Initialize CLIP pipeline when document loads
-async function initClip() {
-    console.log("Loading CLIP...");
-    try {
-        let last_progress = 0;
-        window.classifier = await pipeline(
-            'zero-shot-image-classification',
-            'Xenova/clip-vit-base-patch16',
-            {
-                progress_callback: (data) => {
-                    const { status, progress } = data;
-                    if (status === 'progress') {
-                        if (progress > last_progress + 10 || progress < last_progress) {
-                            console.log(`Loading: ${progress}%`);
-                            last_progress = progress;
-                        }
+async function init_clip() {
+    const model_name = "Xenova/clip-vit-base-patch16"
+    console.log(`Loading ${model_name}`)
+    let last_progress = 0
+    window.classifier = await pipeline(
+        "zero-shot-image-classification",
+        model_name,
+        {
+            progress_callback: data => {
+                const { status, progress } = data
+                if (status === "progress") {
+                    if (progress > last_progress + 10 || progress < last_progress) {
+                        console.log(`Loading: ${progress}%`)
+                        last_progress = progress
                     }
                 }
             }
-        );
-        console.log("CLIP model loaded successfully");
-    } catch (e) {
-        console.error("Failed to load CLIP:", e);
-        console.error("Full error:", e.stack);
-        return;
-    }
+        }
+    )
 
     // Test with tiger image
-    window.url = 'https://huggingface.co/datasets/Xenova/transformers.js-docs/resolve/main/tiger.jpg';
-    window.output = await classifier(url, ['tiger', 'horse', 'dog']);
-    console.log(output);
+    window.url = "https://huggingface.co/datasets/Xenova/transformers.js-docs/resolve/main/tiger.jpg"
+    window.output = await classifier(url, ["tiger", "horse", "dog"])
+    console.log(output)
 }
 
 // Function to get similarity score between canvas and text
 async function getClipScore(canvas, textPrompt) {
     if (!window.classifier) {
-        console.error("CLIP model not initialized");
-        return 0;
+        console.error("CLIP model not initialized")
+        return 0
     }
     
     try {
         // Convert WebGL canvas to image data
-        const imageData = canvas.toDataURL('image/png');
-        const result = await window.classifier(imageData, [textPrompt]);
-        return result[0].score;
+        const imageData = canvas.toDataURL("image/png")
+        const result = await window.classifier(imageData, [textPrompt])
+        return result[0].score
     } catch (e) {
-        console.error("CLIP scoring failed:", e);
-        return 0;
+        console.error("CLIP scoring failed:", e)
+        return 0
     }
 }
 
-document.addEventListener('DOMContentLoaded', initClip);
+document.addEventListener("DOMContentLoaded", init_clip)
 </script>
 
 <!-- lil-gui icons will break if the below comment is removed -->

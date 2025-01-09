@@ -61,32 +61,17 @@ async function init_clip() {
             }
         }
     )
-
-    // Test with tiger image
-    window.url = "https://huggingface.co/datasets/Xenova/transformers.js-docs/resolve/main/tiger.jpg"
-    window.output = await classifier(url, ["tiger", "horse", "dog"])
-    console.log(output)
 }
-
-// Function to get similarity score between canvas and text
-async function getClipScore(canvas, textPrompt) {
-    if (!window.classifier) {
-        console.error("CLIP model not initialized")
-        return 0
-    }
-    
-    try {
-        // Convert WebGL canvas to image data
-        const imageData = canvas.toDataURL("image/png")
-        const result = await window.classifier(imageData, [textPrompt])
-        return result[0].score
-    } catch (e) {
-        console.error("CLIP scoring failed:", e)
-        return 0
-    }
-}
-
 document.addEventListener("DOMContentLoaded", init_clip)
+
+async function score_canvas(prompts = ["abstract", "pattern", "cells"]) {
+    if (!classifier || !canvas) {
+        console.error("clip or canvas not loaded")
+        return
+    }
+    const imageData = canvas.elt.toDataURL("image/png")
+    return await classifier(imageData, prompts)
+}
 </script>
 
 <!-- lil-gui icons will break if the below comment is removed -->
@@ -186,7 +171,7 @@ state.guiParams = state.guiParams || {
     gravity: 0,
     "solid vertical borders": false,
     "postprocess colors": false,
-    tile: 2,
+    tile: 1,
     "target steps/sec": 60,
     "brush size": 0.1,
 }

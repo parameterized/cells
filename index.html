@@ -50,13 +50,14 @@
 <script>
 const sauce = document.documentElement.innerHTML
 let state = {}
+let classificationInProgress = false
 
 state = {
     ...state,
     paramsHistory: [],
     historyIdx: 0,
     ruleScores: [],
-    evaluationInterval: 3000,
+    evaluationInterval: 2500,
     lastEvaluationTime: 0,
 }
 
@@ -78,7 +79,7 @@ async function init_clip() {
         "zero-shot-image-classification",
         model_name,
         {
-            device: "webgpu",
+            // device: "webgpu",
             dtype: "q8",
             progress_callback: data => {
                 const { status, progress } = data
@@ -97,15 +98,17 @@ document.addEventListener("DOMContentLoaded", init_clip)
 async function score_canvas(prompts = ["abstract", "pattern", "cells"]) {
     if (!window.classifier || !canvas) return
     state.lastEvaluationTime = performance.now()
+    if (classificationInProgress) {
+        console.log("Classification in progress, skipping")
+        return
+    }
     console.log("scoring")
     const imageData = canvas.elt.toDataURL("image/png")
-    try {
-        // Create a new Promise that will be garbage collected after resolution
-        return await Promise.resolve(window.classifier(imageData, prompts))
-    } catch (error) {
-        console.error('Error in classifier:', error)
-        return null
-    }
+
+    classificationInProgress = true
+    const result = await classifier(imageData, prompts)
+    classificationInProgress = false
+    return result
 }
 
 const guiButtons = {
@@ -634,19 +637,49 @@ async function collectRuleScore() {
 
     const scores = await score_canvas()
     if (!scores) return
-    console.log(JSON.stringify(scores))
+    // console.log(JSON.stringify(scores))
+    const cells_score = scores.find(s => s.label === "cells").score
+    console.log(`cells score: ${cells_score.toFixed(6)}`)
 
     const selectedParams = (
         state.paramsHistory[state.historyIdx].objects[0]
     )
     state.ruleScores.push({
-        params: JSON.parse(JSON.stringify(selectedParams)),
-        scores: scores,
-        timestamp: Date.now()
+        cells_score,
+        params: selectedParams,
+        timestamp: Date.now(),
     })
-    state.paramsHistory.push(mutateParams(selectedParams))
-    state.historyIdx = state.paramsHistory.length - 1
-    guiButtons.reseed()
+
+    // random init or mutate from celly one
+    if (random() < 0.2) {
+        console.log("random init")
+        guiButtons["new params"]()
+    } else {
+        // get 3 random rule score idxs
+        let idxs = []
+        for (let i = 0; i < 3; i++) {
+            idxs.push(int(random() * state.ruleScores.length))
+        }
+        // sort by cells_score
+        idxs.sort((a, b) => {
+            return (
+                state.ruleScores[a].cells_score -
+                state.ruleScores[b].cells_score
+            )
+        })
+        // mutate from highest
+        const high_idx = idxs[2]
+        const high_rule_score = state.ruleScores[high_idx]
+        console.log(`mutating from ${high_rule_score.cells_score.toFixed(6)}`)
+        console.log(`currently ${state.ruleScores.length} scored rules`)
+        state.paramsHistory.push(mutateParams(high_rule_score.params))
+        state.historyIdx = state.paramsHistory.length - 1
+        guiButtons.reseed()
+        // maybe drop lowest
+        if (random() < 0.5) {
+            state.ruleScores.splice(idxs[0], 1)
+        }
+    }
 }
 
 function draw() {

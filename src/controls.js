@@ -1,8 +1,6 @@
-import { glsl, cells, newParams, cellsTargetParams, step } from "./index.js"
+import { canvas, glsl, cells, newParams, cellsTargetParams, step } from "./index.js"
 import { state } from "./state.js"
 
-
-const sauce = document.documentElement.innerHTML
 
 export const guiButtons = {
     "new params": () => {
@@ -35,17 +33,6 @@ export const guiButtons = {
         state.pause = !state.pause
     },
     step,
-    "save as html": () => {
-        const sauceWithState = sauce.replace(
-            /(?<=const state = ).*/,
-            `JSON.parse('${JSON.stringify(state)}')`
-        )
-        const a = document.createElement("a")
-        const bob = new Blob([sauceWithState], {type: "text/plain"})
-        a.setAttribute("href", URL.createObjectURL(bob))
-        a.setAttribute("download", `${state.guiParams.filename}.html`)
-        a.click()
-    },
     "save as png": () => {
         const screenshotData = canvas.elt.toDataURL("image/png").replace(
             "image/png",
@@ -99,14 +86,6 @@ gui.add(state.guiParams, "target steps/sec", 30, 2000, 1)
 export const fpsController = gui.add({ "frames/sec": 0 }, "frames/sec").disable()
 export const spsController = gui.add({ "steps/sec": 0 }, "steps/sec").disable()
 gui.add(state.guiParams, "brush size", 0.01, 0.5, 0.01)
-
-gui.add({ "sorce": () => {
-    const a = document.createElement("a")
-    a.setAttribute("href", "https://github.com/parameterized/cells/blob/main/index.html")
-    a.setAttribute("target", "_blank")
-    a.click()
-}}, "sorce")
-
 
 gui.onChange(e => {
     for (const elt of [

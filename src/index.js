@@ -4,8 +4,7 @@ import { guiButtons, fpsController, spsController } from "./controls.js"
 
 const mouseButtonsDown = { 0: false, 1: false, 2: false }
 
-let canvas
-export let glsl, cells
+export let canvas, glsl, cells
 let targetMass
 
 let frameCount = 0

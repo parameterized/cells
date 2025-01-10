@@ -24,10 +24,27 @@
     import { pipeline, env } from "./lib/transformers.js"
     window.pipeline = pipeline
     env.allowLocalModels = true
-    // env.allowRemoteModels = false
-    // env.useBrowserCache = false
+    env.allowRemoteModels = false
+    env.useBrowserCache = false
     env.localModelPath = "lib/models"
     env.backends.onnx.wasm.proxy = true
+
+    import {
+        AutoTokenizer,
+        CLIPTextModelWithProjection,
+        AutoProcessor,
+        CLIPVisionModelWithProjection,
+        RawImage,
+        dot,
+        softmax,
+    } from "./lib/transformers.js"
+    window.AutoTokenizer = AutoTokenizer
+    window.CLIPTextModelWithProjection = CLIPTextModelWithProjection
+    window.AutoProcessor = AutoProcessor
+    window.CLIPVisionModelWithProjection = CLIPVisionModelWithProjection
+    window.RawImage = RawImage
+    window.dot = dot
+    window.softmax = softmax
 </script>
 <script type="module">
     if (typeof window.pipeline !== "function") {
@@ -57,7 +74,7 @@ state = {
     paramsHistory: [],
     historyIdx: 0,
     ruleScores: [],
-    evaluationInterval: 2500,
+    evaluationInterval: 1000,
     lastEvaluationTime: 0,
 }
 
@@ -72,26 +89,92 @@ let lastCountsUpdate = 0
 let stepTimer = 0
 
 async function init_clip() {
-    const model_name = "Xenova/clip-vit-base-patch16"
-    console.log(`Loading ${model_name}`)
-    let last_progress = 0
-    window.classifier = await pipeline(
-        "zero-shot-image-classification",
-        model_name,
-        {
-            // device: "webgpu",
-            dtype: "q8",
-            progress_callback: data => {
-                const { status, progress } = data
-                if (status === "progress") {
-                    if (progress > last_progress + 10 || progress < last_progress) {
-                        console.log(`Loading: ${progress}%`)
-                        last_progress = progress
-                    }
-                }
-            }
-        }
-    )
+    // const model_name = "Xenova/clip-vit-base-patch16"
+    // console.log(`Loading ${model_name}`)
+    // let last_progress = 0
+    // window.classifier = await pipeline(
+    //     "zero-shot-image-classification",
+    //     model_name,
+    //     {
+    //         // device: "webgpu",
+    //         dtype: "q8",
+    //         progress_callback: data => {
+    //             const { status, progress } = data
+    //             if (status === "progress") {
+    //                 if (progress > last_progress + 10 || progress < last_progress) {
+    //                     console.log(`Loading: ${progress}%`)
+    //                     last_progress = progress
+    //                 }
+    //             }
+    //         }
+    //     }
+    // )
+
+    const model_id = "Xenova/mobileclip_s0"
+    console.log(`Loading ${model_id}`)
+    // Load tokenizer and text model
+    const tokenizer = await AutoTokenizer.from_pretrained(model_id);
+    const text_model = await CLIPTextModelWithProjection.from_pretrained(model_id, {
+        dtype: "q8",
+    });
+
+    // Load processor and vision model
+    const processor = await AutoProcessor.from_pretrained(model_id);
+    const vision_model = await CLIPVisionModelWithProjection.from_pretrained(model_id, {
+        quantized: false, // NOTE: vision model is sensitive to quantization.
+        dtype: "fp32",
+    });
+
+    // Run tokenization
+    // const texts = ['cats', 'dogs', 'birds'];
+    // const text_inputs = tokenizer(texts, { padding: 'max_length', truncation: true });
+
+    // // Compute text embeddings
+    // const { text_embeds } = await text_model(text_inputs);
+    // const normalized_text_embeds = text_embeds.normalize().tolist();
+
+    // // Read image and run processor
+    // const url = 'https://huggingface.co/datasets/Xenova/transformers.js-docs/resolve/main/cats.jpg';
+    // const image = await RawImage.read(url);
+    // const image_inputs = await processor(image);
+
+    // // Compute vision embeddings
+    // const { image_embeds } = await vision_model(image_inputs);
+    // const normalized_image_embeds = image_embeds.normalize().tolist();
+
+    // // Compute probabilities
+    // const probabilities = normalized_image_embeds.map(
+    // x => softmax(normalized_text_embeds.map(y => 100 * dot(x, y)))
+    // );
+    // console.log(probabilities);
+
+    // Create a classifier function that can be reused
+    window.classifier = async (imageData, prompts) => {
+        // Tokenize the prompts
+        const prompt_inputs = tokenizer(prompts, { padding: 'max_length', truncation: true });
+        
+        // Get text embeddings for the prompts
+        const { text_embeds } = await text_model(prompt_inputs);
+        const norm_text_embeds = text_embeds.normalize().tolist();
+        
+        // Process the input image
+        const img = await RawImage.read(imageData);
+        const img_inputs = await processor(img);
+        
+        // Get image embeddings
+        const { image_embeds } = await vision_model(img_inputs);
+        const norm_image_embeds = image_embeds.normalize().tolist();
+        
+        // Compute probabilities and format as score/label objects
+        const scores = norm_image_embeds.map(x => 
+            softmax(norm_text_embeds.map(y => 100 * dot(x, y)))
+        )[0]; // Take first result since we're processing one image
+
+        return prompts.map((label, i) => ({
+            score: scores[i],
+            label: label
+        }));
+    };
 }
 document.addEventListener("DOMContentLoaded", init_clip)
 

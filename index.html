@@ -24,6 +24,8 @@
     import { pipeline, env } from "./lib/transformers.js"
     window.pipeline = pipeline
     env.allowLocalModels = true
+    // env.allowRemoteModels = false
+    // env.useBrowserCache = false
     env.localModelPath = "lib/models"
     env.backends.onnx.wasm.proxy = true
 </script>
@@ -40,7 +42,33 @@
     }   
 </script>
 
+<!-- lil-gui icons will break if the below comment is removed -->
+<!-- ✓ -->
+<!-- and gui init has to happen after body is created -->
+<body>
+
 <script>
+const sauce = document.documentElement.innerHTML
+let state = {}
+
+state = {
+    ...state,
+    paramsHistory: [],
+    historyIdx: 0,
+    ruleScores: [],
+    evaluationInterval: 3000,
+    lastEvaluationTime: 0,
+}
+
+const mouseButtonsDown = { 0: false, 1: false, 2: false }
+
+let canvas
+let glsl, cells, targetMass
+
+let frameCount = 0
+let stepCount = 0
+let lastCountsUpdate = 0
+let stepTimer = 0
 
 async function init_clip() {
     const model_name = "Xenova/clip-vit-base-patch16"
@@ -50,6 +78,8 @@ async function init_clip() {
         "zero-shot-image-classification",
         model_name,
         {
+            device: "webgpu",
+            dtype: "q8",
             progress_callback: data => {
                 const { status, progress } = data
                 if (status === "progress") {
@@ -65,36 +95,18 @@ async function init_clip() {
 document.addEventListener("DOMContentLoaded", init_clip)
 
 async function score_canvas(prompts = ["abstract", "pattern", "cells"]) {
-    if (!classifier || !canvas) {
-        console.error("clip or canvas not loaded")
-        return
-    }
+    if (!window.classifier || !canvas) return
+    state.lastEvaluationTime = performance.now()
+    console.log("scoring")
     const imageData = canvas.elt.toDataURL("image/png")
-    return await classifier(imageData, prompts)
+    try {
+        // Create a new Promise that will be garbage collected after resolution
+        return await Promise.resolve(window.classifier(imageData, prompts))
+    } catch (error) {
+        console.error('Error in classifier:', error)
+        return null
+    }
 }
-</script>
-
-<!-- lil-gui icons will break if the below comment is removed -->
-<!-- ✓ -->
-<!-- and gui init has to happen after body is created -->
-<body>
-
-<script>
-const sauce = document.documentElement.innerHTML
-const state = {}
-
-const mouseButtonsDown = { 0: false, 1: false, 2: false }
-
-state.paramsHistory = state.paramsHistory || []
-state.historyIdx = state.historyIdx || 0
-
-let canvas
-let glsl, cells, targetMass
-
-let frameCount = 0
-let stepCount = 0
-let lastCountsUpdate = 0
-let stepTimer = 0
 
 const guiButtons = {
     "new params": () => {
@@ -614,6 +626,29 @@ function interact() {
     }
 }
 
+async function collectRuleScore() {
+    const currentTime = performance.now()
+    if (currentTime - state.lastEvaluationTime < state.evaluationInterval) {
+        return
+    }
+
+    const scores = await score_canvas()
+    if (!scores) return
+    console.log(JSON.stringify(scores))
+
+    const selectedParams = (
+        state.paramsHistory[state.historyIdx].objects[0]
+    )
+    state.ruleScores.push({
+        params: JSON.parse(JSON.stringify(selectedParams)),
+        scores: scores,
+        timestamp: Date.now()
+    })
+    state.paramsHistory.push(mutateParams(selectedParams))
+    state.historyIdx = state.paramsHistory.length - 1
+    guiButtons.reseed()
+}
+
 function draw() {
     stepTimer = max(stepTimer - deltaTime, -1000 / 30)
     const startMillis = millis()
@@ -653,6 +688,10 @@ function draw() {
         spsController.setValue(stepCount)
         frameCount = 0
         stepCount = 0
+    }
+
+    if (!state.pause) {
+        collectRuleScore().catch(console.error)
     }
 }
 

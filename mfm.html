@@ -13,11 +13,101 @@ onload = function() {
     loop()
 }
 
+const mouse = {
+    x: 0, y: 0,
+    px: 0, py: 0,
+}
+
 function loop() {
     fix_size()
+    update_cam()
     sim_step()
     draw()
+
+    mouse.px = mouse.x
+    mouse.py = mouse.y
+
     requestAnimationFrame(loop)
+}
+</script>
+
+
+<script id="camera">
+const pan = {
+    x: 0, y: 0,
+    xv: 0, yv: 0,
+    held: false,
+}
+const zoom = {
+    scale: 1,
+    max_scale: 20,
+    vel_factor: 1,
+}
+
+function clamp(x, a, b) {
+    return Math.max(Math.min(x, b), a)
+}
+function lerp(a, b, t) {
+    return a * (1 - t) + b * t
+}
+
+function update_cam() {
+    // todo: framerate independence, smoothing
+    if (pan.held) {
+        const dx = (mouse.x - mouse.px) / zoom.scale
+        const dy = (mouse.y - mouse.py) / zoom.scale
+        pan.xv = dx
+        pan.yv = dy
+        pan.x += dx
+        pan.y += dy
+    } else {
+        pan.xv *= 0.9
+        pan.yv *= 0.9
+        pan.x += pan.xv
+        pan.y += pan.yv
+    }
+
+    // zoom
+    const pscale = zoom.scale
+    zoom.scale *= zoom.vel_factor
+    // zoom.max_scale = 20 * 4 / cell_size
+    zoom.max_scale = 20
+    zoom.scale = clamp(zoom.scale, 1, zoom.max_scale)
+    zoom.vel_factor = lerp(zoom.vel_factor, 1, 0.2)
+
+    // update pan to keep mouse in place
+    const mouse_uv = [
+        mouse.x / innerWidth,
+        (1 - mouse.y / innerHeight),
+    ]
+    const delta_uv = [
+        mouse_uv[0] * (1 / pscale - 1 / zoom.scale),
+        mouse_uv[1] * (1 / pscale - 1 / zoom.scale),
+    ]
+    pan.x -= innerWidth * delta_uv[0]
+    pan.y += innerHeight * delta_uv[1]
+}
+
+onmousemove = e => {
+    mouse.x = e.x
+    mouse.y = e.y
+}
+onwheel = e => {
+    zoom.vel_factor -= e.deltaY / 2000   
+}
+oncontextmenu = e => e.preventDefault()
+onmousedown = e => {
+    if (e.button === 2) {
+        pan.held = true
+    }
+}
+onmouseup = e => {
+    if (e.button === 2) {
+        pan.held = false
+    }
+}
+onmouseleave = e => {
+    pan.held = false
 }
 </script>
 
@@ -26,6 +116,7 @@ function loop() {
 #version 300 es
 in vec2 pos;
 out vec2 uv;
+
 void main() {
     gl_Position = vec4(pos, 0, 1);
     uv = pos * 0.5 + 0.5;
@@ -35,9 +126,11 @@ void main() {
 
 <script type="x-shader/x-fragment" id="frag_sim">
 #version 300 es
-precision highp float;
+precision mediump float;
 out float outValue;
+
 uniform sampler2D state;
+
 void main() {
     vec2 res = vec2(textureSize(state, 0));
     ivec2 p = ivec2(gl_FragCoord.xy);
@@ -60,12 +153,16 @@ void main() {
 
 <script type="x-shader/x-fragment" id="frag_draw">
 #version 300 es
-precision highp float;
-out vec4 color;
+precision mediump float;
 in vec2 uv;
+out vec4 color;
+
 uniform sampler2D state;
+uniform float scale;
+uniform vec2 offset;
+
 void main() {
-    float value = texture(state, uv).r;
+    float value = texture(state, uv / scale + offset).r;
     color = vec4(vec3(value), 1.0);
 }
 </script>
@@ -101,6 +198,15 @@ function draw() {
     gl.bindFramebuffer(gl.FRAMEBUFFER, null)
     gl.useProgram(draw_program)
     gl.bindTexture(gl.TEXTURE_2D, textures[0])
+    gl.uniform1f(
+        gl.getUniformLocation(draw_program, "scale"),
+        zoom.scale,
+    )
+    gl.uniform2f(
+        gl.getUniformLocation(draw_program, "offset"),
+        -pan.x / innerWidth,
+        pan.y / innerHeight,
+    )
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
 }
 </script>

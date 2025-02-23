@@ -17,6 +17,7 @@ const mouse = {
     x: 0, y: 0,
     px: 0, py: 0,
 }
+let time_step = 0
 
 function loop() {
     fix_size()
@@ -26,6 +27,7 @@ function loop() {
 
     mouse.px = mouse.x
     mouse.py = mouse.y
+    time_step++
 
     requestAnimationFrame(loop)
 }
@@ -126,27 +128,45 @@ void main() {
 
 <script type="x-shader/x-fragment" id="frag_sim">
 #version 300 es
-precision mediump float;
-out float outValue;
+precision highp float;
+precision highp int;
+
+out float cell;
 
 uniform sampler2D state;
+uniform int time_step;
+
+vec3 hash(ivec3 ix) {
+    // source: https://www.shadertoy.com/view/XlXcW4
+    uvec3 x = uvec3(ix);
+    const uint k = 1103515245U;
+    x = ((x >> 8U)^x.yzx) * k;
+    x = ((x >> 8U)^x.yzx) * k;
+    x = ((x >> 8U)^x.yzx) * k;
+    return vec3(x) * (1.0 / float(0xffffffffU));
+}
 
 void main() {
-    vec2 res = vec2(textureSize(state, 0));
     ivec2 p = ivec2(gl_FragCoord.xy);
-    int neighbors = 0;
-    for (int x = -1; x <= 1; x++)
-        for (int y = -1; y <= 1; y++)
-            if (x != 0 || y != 0)
-                neighbors += int(texture(
-                    state,
-                    vec2(p + ivec2(x, y)) / res
-                ).r);
 
-    float current = texelFetch(state, p, 0).r;
-    outValue = (
-        neighbors == 3 || (neighbors == 2 && current > 0.5)
-    ) ? 1.0 : 0.0;
+    // cycle through 2-cell event window grid alignments & phases
+    // note: has some directional bias
+    ivec2 dir = bool(time_step % 2) ? ivec2(1, 0) : ivec2(0, 1);
+    int grid_phase = (time_step / 2) % 2;
+    int cell_phase = ((p.x * dir.x + p.y * dir.y) + grid_phase) % 2;
+    ivec2 window_p = p - cell_phase * dir;
+
+    bool swap = hash(ivec3(window_p, time_step)).g < 0.5;
+    if (swap) {
+        vec2 res = vec2(textureSize(state, 0));
+        float other_cell = texture(
+            state,
+            vec2(window_p + dir * (1 - cell_phase)) / res
+        ).r;
+        cell = other_cell;
+    } else {
+        cell = texelFetch(state, p, 0).r;
+    }
 }
 </script>
 
@@ -188,6 +208,10 @@ function sim_step() {
         textures[1], 0,
     )
     gl.bindTexture(gl.TEXTURE_2D, textures[0])
+    gl.uniform1i(
+        gl.getUniformLocation(sim_program, "time_step"),
+        time_step,
+    )
     gl.enableVertexAttribArray(0)
     gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0)
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
@@ -264,7 +288,7 @@ function new_tex(size) {
     const tex = gl.createTexture()
     gl.bindTexture(gl.TEXTURE_2D, tex)
     const pixels = new Uint8Array(size * size).map(
-        () => Math.random() > 0.7 ? 255 : 0
+        () => Math.random() * 128 + 128
     )
     gl.texImage2D(
         gl.TEXTURE_2D, 0, gl.R8, size, size, 0,

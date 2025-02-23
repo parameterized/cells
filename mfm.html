@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>mfm</title>
+<link rel="icon" type="image/png" href="img/SelfImage.png" />
+</head>
+<body style="margin: 0; overflow: hidden; background-color: #222">
+<canvas style="display: block"></canvas>
+
+<script id="main">
+onload = function() {
+    load_webgl()
+    loop()
+}
+
+function loop() {
+    fix_size()
+    sim_step()
+    draw()
+    requestAnimationFrame(loop)
+}
+</script>
+
+
+<script type="x-shader/x-vertex" id="vert">
+#version 300 es
+in vec2 pos;
+out vec2 uv;
+void main() {
+    gl_Position = vec4(pos, 0, 1);
+    uv = pos * 0.5 + 0.5;
+}
+</script>
+
+
+<script type="x-shader/x-fragment" id="frag_sim">
+#version 300 es
+precision highp float;
+out float outValue;
+uniform sampler2D state;
+void main() {
+    vec2 res = vec2(textureSize(state, 0));
+    ivec2 p = ivec2(gl_FragCoord.xy);
+    int neighbors = 0;
+    for (int x = -1; x <= 1; x++)
+        for (int y = -1; y <= 1; y++)
+            if (x != 0 || y != 0)
+                neighbors += int(texture(
+                    state,
+                    vec2(p + ivec2(x, y)) / res
+                ).r);
+
+    float current = texelFetch(state, p, 0).r;
+    outValue = (
+        neighbors == 3 || (neighbors == 2 && current > 0.5)
+    ) ? 1.0 : 0.0;
+}
+</script>
+
+
+<script type="x-shader/x-fragment" id="frag_draw">
+#version 300 es
+precision highp float;
+out vec4 color;
+in vec2 uv;
+uniform sampler2D state;
+void main() {
+    float value = texture(state, uv).r;
+    color = vec4(vec3(value), 1.0);
+}
+</script>
+
+
+<script id="webgl_loop">
+function fix_size() {
+    if (
+        canvas.width !== innerWidth
+        || canvas.height !== innerHeight
+    ) {
+        canvas.width = innerWidth
+        canvas.height = innerHeight
+    }
+    gl.viewport(0, 0, canvas.width, canvas.height)
+}
+
+function sim_step() {
+    gl.useProgram(sim_program)
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fb)
+    gl.framebufferTexture2D(
+        gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D,
+        textures[1], 0,
+    )
+    gl.bindTexture(gl.TEXTURE_2D, textures[0])
+    gl.enableVertexAttribArray(0)
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0)
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
+    textures = [textures[1], textures[0]]
+}
+
+function draw() {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+    gl.useProgram(draw_program)
+    gl.bindTexture(gl.TEXTURE_2D, textures[0])
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
+}
+</script>
+
+
+<script id="webgl_setup">
+const canvas = document.querySelector("canvas")
+canvas.width = innerWidth
+canvas.height = innerHeight
+const gl = canvas.getContext("webgl2")
+
+const vertices = new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1])
+const buffer = gl.createBuffer()
+const fb = gl.createFramebuffer()
+
+gl.bindBuffer(gl.ARRAY_BUFFER, buffer)
+gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW)
+
+let textures = [new_tex(128), new_tex(128)]
+let sim_program, draw_program
+
+function load_webgl() {
+    const source = id => document.getElementById(id).innerText.trim()
+    const vert_source = source("vert")
+    sim_program = create_program(vert_source, source("frag_sim"))
+    draw_program = create_program(vert_source, source("frag_draw"))
+}
+
+function compile_shader(source, type) {
+    const shader = gl.createShader(type)
+    gl.shaderSource(shader, source)
+    gl.compileShader(shader)
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS))
+        console.error(gl.getShaderInfoLog(shader))
+
+    return shader
+}
+
+function create_program(vert_source, frag_source) {
+    const program = gl.createProgram()
+    gl.attachShader(
+        program, compile_shader(vert_source, gl.VERTEX_SHADER)
+    )
+    gl.attachShader(
+        program, compile_shader(frag_source, gl.FRAGMENT_SHADER)
+    )
+    gl.linkProgram(program)
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS))
+        console.error(gl.getProgramInfoLog(program))
+
+    return program
+}
+
+function new_tex(size) {
+    const tex = gl.createTexture()
+    gl.bindTexture(gl.TEXTURE_2D, tex)
+    const pixels = new Uint8Array(size * size).map(
+        () => Math.random() > 0.7 ? 255 : 0
+    )
+    gl.texImage2D(
+        gl.TEXTURE_2D, 0, gl.R8, size, size, 0,
+        gl.RED, gl.UNSIGNED_BYTE, pixels,
+    )
+    gl.texParameteri(
+        gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST,
+    )
+    gl.texParameteri(
+        gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST,
+    )
+
+    return tex
+}
+</script>
+
+</body>
+</html>

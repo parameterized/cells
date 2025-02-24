@@ -8,6 +8,8 @@
 <canvas style="display: block"></canvas>
 
 <script id="main">
+const grid_size = 256
+
 onload = function() {
     load_webgl()
     loop()
@@ -121,7 +123,7 @@ function update_cam() {
     const pscale = zoom.scale
     zoom.scale *= zoom.vel_factor
     zoom.max_scale = 20
-    zoom.scale = clamp(zoom.scale, 1, zoom.max_scale)
+    zoom.scale = clamp(zoom.scale, 0.5, zoom.max_scale)
     zoom.vel_factor = lerp(zoom.vel_factor, 1, 0.2)
 
     // update pan to keep mouse in place
@@ -193,7 +195,8 @@ void main() {
     int cell_phase = ((p.x * dir.x + p.y * dir.y) + grid_phase) % 2;
     ivec2 window_p = p - cell_phase * dir;
 
-    bool swap = hash(ivec3(window_p, time_step)).g < 0.5;
+    vec3 rng = hash(ivec3(window_p, time_step));
+    bool swap = rng.g < 0.5;
     if (swap) {
         vec2 res = vec2(textureSize(cells, 0));
         float other_cell = texture(
@@ -202,7 +205,10 @@ void main() {
         ).r;
         cell = other_cell;
     } else {
-        cell = texelFetch(cells, p, 0).r;
+        cell = min(
+            texelFetch(cells, p, 0).r + 0.005,
+            0.8 + rng.b * 0.2
+        );
     }
 }
 </script>
@@ -335,7 +341,7 @@ function interact() {
     )
     gl.uniform1f(
         gl.getUniformLocation(interact_program, "brush_size"),
-        0.1 / zoom.scale,
+        0.05 / zoom.scale,
     )
     gl.enableVertexAttribArray(0)
     gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0)
@@ -377,7 +383,7 @@ const fb = gl.createFramebuffer()
 gl.bindBuffer(gl.ARRAY_BUFFER, buffer)
 gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW)
 
-let textures = [new_tex(128), new_tex(128)]
+let textures = [new_tex(grid_size), new_tex(grid_size)]
 let sim_program, interact_program, draw_program
 
 function load_webgl() {

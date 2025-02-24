@@ -85,6 +85,8 @@ onmouseleave = e => {
 onkeydown = e => {
     if (e.key === " ") {
         paused = !paused
+    } else if (e.key === "ArrowRight") {
+        sim_step()
     }
 }
 </script>

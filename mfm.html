@@ -262,6 +262,7 @@ in vec2 uv;
 out vec4 color;
 
 uniform sampler2D cells;
+uniform sampler2D font;
 uniform vec2 screen_size;
 uniform float zoom_scale;
 uniform vec2 offset;
@@ -273,7 +274,24 @@ vec2 get_cam_uv() {
 }
 
 void main() {
-    float value = texture(cells, get_cam_uv()).r;
+    vec2 cam_uv = get_cam_uv();
+    float value = texture(cells, cam_uv).r;
+
+    // numbers
+    vec2 cs = vec2(textureSize(cells, 0));
+    vec2 cell_uv = mod(cam_uv * cs, vec2(1.0));
+    cell_uv = clamp(cell_uv * 2.0 - 0.5, vec2(0.0), vec2(1.0));
+    float display_num = round(value * 9.0);
+    vec2 num_uv = (
+        cell_uv + vec2(display_num, 0.0)
+    ) / vec2(10.0, 1.0);
+    num_uv.y = 1.0 - num_uv.y;
+    float num_visibility = smoothstep(
+        0.1, log2(20.0), log2(zoom_scale)
+    );
+    float num_value = texture(font, num_uv).a * num_visibility;
+    value = mix(value, mod(value + 0.5, 1.0), num_value);
+
     color = vec4(vec3(value), 1.0);
 }
 </script>
@@ -298,9 +316,9 @@ function sim_step() {
     gl.bindFramebuffer(gl.FRAMEBUFFER, fb)
     gl.framebufferTexture2D(
         gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D,
-        textures[1], 0,
+        grid_cells[1], 0,
     )
-    gl.bindTexture(gl.TEXTURE_2D, textures[0])
+    gl.bindTexture(gl.TEXTURE_2D, grid_cells[0])
     gl.uniform1i(
         gl.getUniformLocation(sim_program, "time_step"),
         time_step,
@@ -308,7 +326,7 @@ function sim_step() {
     gl.enableVertexAttribArray(0)
     gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0)
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
-    textures = [textures[1], textures[0]]
+    grid_cells = [grid_cells[1], grid_cells[0]]
     time_step++
 }
 
@@ -330,9 +348,10 @@ function interact() {
     gl.bindFramebuffer(gl.FRAMEBUFFER, fb)
     gl.framebufferTexture2D(
         gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D,
-        textures[1], 0,
+        grid_cells[1], 0,
     )
-    gl.bindTexture(gl.TEXTURE_2D, textures[0])
+    gl.activeTexture(gl.TEXTURE0)
+    gl.bindTexture(gl.TEXTURE_2D, grid_cells[0])
     gl.uniform1i(
         gl.getUniformLocation(interact_program, "time_step"),
         time_step,
@@ -348,13 +367,20 @@ function interact() {
     gl.enableVertexAttribArray(0)
     gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0)
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
-    textures = [textures[1], textures[0]]
+    grid_cells = [grid_cells[1], grid_cells[0]]
 }
 
 function draw() {
     gl.bindFramebuffer(gl.FRAMEBUFFER, null)
     gl.useProgram(draw_program)
-    gl.bindTexture(gl.TEXTURE_2D, textures[0])
+
+    gl.activeTexture(gl.TEXTURE0)
+    gl.bindTexture(gl.TEXTURE_2D, grid_cells[0])
+    gl.activeTexture(gl.TEXTURE1)
+    gl.bindTexture(gl.TEXTURE_2D, font_tex)
+    gl.uniform1i(gl.getUniformLocation(draw_program, "cells"), 0)
+    gl.uniform1i(gl.getUniformLocation(draw_program, "font"), 1)
+
     gl.uniform2f(
         gl.getUniformLocation(draw_program, "screen_size"),
         canvas.width, canvas.height,
@@ -385,10 +411,12 @@ const fb = gl.createFramebuffer()
 gl.bindBuffer(gl.ARRAY_BUFFER, buffer)
 gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW)
 
-let textures = [new_tex(grid_size), new_tex(grid_size)]
+let grid_cells = [new_tex(grid_size), new_tex(grid_size)]
+let font_tex
 let sim_program, interact_program, draw_program
 
 function load_webgl() {
+    // load shaders
     const source = id => document.getElementById(id).innerText.trim()
     const vert_source = source("vert")
     sim_program = create_program(
@@ -400,6 +428,22 @@ function load_webgl() {
     draw_program = create_program(
         vert_source, source("frag_draw")
     )
+
+    // make font texture
+    const tc = document.createElement("canvas")
+    tc.width = 480
+    tc.height = 60
+    const ctx = tc.getContext("2d")
+    ctx.font = "80px Courier New"
+    ctx.fillStyle = "white"
+    ctx.fillText("0123456789", 0, 56)
+    font_tex = gl.createTexture()
+    gl.bindTexture(gl.TEXTURE_2D, font_tex)
+    gl.texImage2D(
+        gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, tc,
+    )
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
 }
 
 function compile_shader(source, type) {

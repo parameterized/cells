@@ -13,8 +13,6 @@ onload = function() {
     loop()
 }
 
-let paused = false
-
 function loop() {
     fix_size()
     update_cam()
@@ -35,6 +33,7 @@ function loop() {
 
 
 <script id="controls">
+let paused = false
 const mouse = {
     x: 0, y: 0,
     px: 0, py: 0,
@@ -102,10 +101,11 @@ const zoom = {
 }
 
 function update_cam() {
-    // todo: framerate independence, smoothing
+    // todo: framerate independence, mouse velocity smoothing
+    const short_edge = min(innerWidth, innerHeight)
     if (pan.held) {
-        const dx = (mouse.x - mouse.px) / zoom.scale
-        const dy = (mouse.y - mouse.py) / zoom.scale
+        const dx = (mouse.x - mouse.px) / zoom.scale / short_edge
+        const dy = (mouse.y - mouse.py) / zoom.scale / short_edge
         pan.xv = dx
         pan.yv = dy
         pan.x += dx
@@ -126,19 +126,21 @@ function update_cam() {
 
     // update pan to keep mouse in place
     const mouse_uv = [
-        mouse.x / innerWidth,
-        (1 - mouse.y / innerHeight),
+        (mouse.x - innerWidth / 2) / short_edge,
+        (mouse.y - innerHeight / 2) / short_edge,
     ]
     const delta_uv = [
         mouse_uv[0] * (1 / pscale - 1 / zoom.scale),
         mouse_uv[1] * (1 / pscale - 1 / zoom.scale),
     ]
-    pan.x -= innerWidth * delta_uv[0]
-    pan.y += innerHeight * delta_uv[1]
+    pan.x -= delta_uv[0]
+    pan.y -= delta_uv[1]
 }
 
+const min = Math.min
+const max = Math.max
 function clamp(x, a, b) {
-    return Math.max(Math.min(x, b), a)
+    return min(max(x, a), b)
 }
 function lerp(a, b, t) {
     return a * (1 - t) + b * t
@@ -213,7 +215,7 @@ out float cell;
 
 uniform sampler2D cells;
 uniform int time_step;
-uniform vec2 mouse_square;
+uniform vec2 mouse;
 uniform float brush_size;
 
 vec3 hash(ivec3 ix) {
@@ -231,18 +233,10 @@ void main() {
     vec2 size = vec2(textureSize(cells, 0));
     vec2 uv = vec2(p) / size;
 
-    float aspect = size.x / size.y;
-    vec2 aspect_scale = (
-        aspect > 1.0
-        ? vec2(aspect, 1.0)
-        : vec2(1.0, 1.0 / aspect)
-    );
-    vec2 uv_square = 0.5 + (uv - 0.5) * aspect_scale;
-
     for (int i = -1; i <= 1; ++i) {
         for (int j = -1; j <= 1; ++j) {
-            vec2 uv_tile = uv_square + vec2(i, j) * aspect_scale;
-            if (distance(uv_tile, mouse_square) < brush_size) {
+            vec2 uv_tile = uv + vec2(i, j);
+            if (distance(uv_tile, mouse) < brush_size) {
                 cell = hash(ivec3(p, time_step)).r / 2.0;
                 return;
             }
@@ -260,11 +254,18 @@ in vec2 uv;
 out vec4 color;
 
 uniform sampler2D cells;
-uniform float scale;
+uniform vec2 screen_size;
+uniform float zoom_scale;
 uniform vec2 offset;
 
+vec2 get_cam_uv() {
+    vec2 ss = screen_size;
+    vec2 aspect_scale = ss / min(ss.x, ss.y);
+    return 0.5 + (uv - 0.5) * aspect_scale / zoom_scale + offset;
+}
+
 void main() {
-    float value = texture(cells, uv / scale + offset).r;
+    float value = texture(cells, get_cam_uv()).r;
     color = vec4(vec3(value), 1.0);
 }
 </script>
@@ -304,19 +305,17 @@ function sim_step() {
 }
 
 function interact() {
-    // do the hand thing
-    const w = innerWidth, h = innerHeight
-    const aspect = w / h
-    const mx = mod(mouse.x / zoom.scale - pan.x, w)
-    const my = mod(h - (h - mouse.y) / zoom.scale - pan.y, h)
-    let mx_square, my_square
-    if (aspect > 1) {
-        mx_square = (w / 2 + (mx - w / 2) * aspect) / w
-        my_square = 1 - my / h
-    } else {
-        mx_square = mx / w
-        my_square = 1 - (h / 2 + (my - h / 2) / aspect) / h
-    }
+    // get mouse cam coords
+    const short_edge = min(innerWidth, innerHeight)
+    const scale = short_edge * zoom.scale
+    const mx = mod(
+        0.5 + (mouse.x - innerWidth / 2) / scale - pan.x,
+        1,
+    )
+    const my = mod(
+        0.5 - (mouse.y - innerHeight / 2) / scale + pan.y,
+        1,
+    )
 
     // bloatware for the draw call
     gl.useProgram(interact_program)
@@ -331,8 +330,8 @@ function interact() {
         time_step,
     )
     gl.uniform2f(
-        gl.getUniformLocation(interact_program, "mouse_square"),
-        mx_square, my_square,
+        gl.getUniformLocation(interact_program, "mouse"),
+        mx, my,
     )
     gl.uniform1f(
         gl.getUniformLocation(interact_program, "brush_size"),
@@ -348,14 +347,17 @@ function draw() {
     gl.bindFramebuffer(gl.FRAMEBUFFER, null)
     gl.useProgram(draw_program)
     gl.bindTexture(gl.TEXTURE_2D, textures[0])
+    gl.uniform2f(
+        gl.getUniformLocation(draw_program, "screen_size"),
+        canvas.width, canvas.height,
+    )
     gl.uniform1f(
-        gl.getUniformLocation(draw_program, "scale"),
+        gl.getUniformLocation(draw_program, "zoom_scale"),
         zoom.scale,
     )
     gl.uniform2f(
         gl.getUniformLocation(draw_program, "offset"),
-        -pan.x / innerWidth,
-        pan.y / innerHeight,
+        -pan.x, pan.y,
     )
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
 }
@@ -381,9 +383,15 @@ let sim_program, interact_program, draw_program
 function load_webgl() {
     const source = id => document.getElementById(id).innerText.trim()
     const vert_source = source("vert")
-    sim_program = create_program(vert_source, source("frag_sim"))
-    interact_program = create_program(vert_source, source("frag_interact"))
-    draw_program = create_program(vert_source, source("frag_draw"))
+    sim_program = create_program(
+        vert_source, source("frag_sim"),
+    )
+    interact_program = create_program(
+        vert_source, source("frag_interact")
+    )
+    draw_program = create_program(
+        vert_source, source("frag_draw")
+    )
 }
 
 function compile_shader(source, type) {

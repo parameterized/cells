@@ -13,7 +13,7 @@ onload = function() {
     loop()
 }
 
-let time_step = 0
+let paused = false
 
 function loop() {
     fix_size()
@@ -23,19 +23,18 @@ function loop() {
         interact()
     }
 
-    sim_step()
+    if (!paused) sim_step()
     draw()
 
     mouse.px = mouse.x
     mouse.py = mouse.y
-    time_step++
 
     requestAnimationFrame(loop)
 }
 </script>
 
 
-<script id="mouse">
+<script id="controls">
 const mouse = {
     x: 0, y: 0,
     px: 0, py: 0,
@@ -80,6 +79,12 @@ onmouseup = e => {
 }
 onmouseleave = e => {
     pan.held = false
+}
+
+onkeydown = e => {
+    if (e.key === " ") {
+        paused = !paused
+    }
 }
 </script>
 
@@ -266,6 +271,8 @@ void main() {
 
 
 <script id="webgl_loop">
+let time_step = 0
+
 function fix_size() {
     if (
         canvas.width !== innerWidth
@@ -293,6 +300,7 @@ function sim_step() {
     gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0)
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
     textures = [textures[1], textures[0]]
+    time_step++
 }
 
 function interact() {

@@ -100,13 +100,68 @@ const pan = {
 }
 const zoom = {
     scale: 1,
+    min_scale: 1,
     max_scale: 20,
     vel_factor: 1,
 }
 
 function update_cam() {
-    // todo: framerate independence, mouse velocity smoothing
+    // zoom
+    const pscale1 = zoom.scale
+    zoom.vel_factor = clamp(zoom.vel_factor, 0.5, 2.0)
+    zoom.scale *= zoom.vel_factor
+    const pscale2 = zoom.scale
+    // elastic bounds
+    const log_zoom = log2(zoom.scale)
+    const log_min = log2(zoom.min_scale)
+    const log_max = log2(zoom.max_scale)
+    const log_target = log_zoom < log_min ? log_min : (
+        log_zoom > log_max ? log_max : log_zoom
+    )
+    const bounce_factor = 1 - pow(
+        1.7,
+        -pow(abs(log_zoom - log_target) * 0.5, 0.5),
+    )
+    zoom.scale = pow(2, lerp(log_zoom, log_target, bounce_factor))
+    zoom.vel_factor = lerp(
+        zoom.vel_factor, 1, 0.2 * pow(3, -bounce_factor * 2)
+    )
+
+    // update pan to keep mouse in place
+    // (or more slidey for elastic scaling)
     const short_edge = min(innerWidth, innerHeight)
+    const mouse_uv = [
+        (mouse.x - innerWidth / 2) / short_edge,
+        (mouse.y - innerHeight / 2) / short_edge,
+    ]
+    const pan_factor = 1 / pscale1 - 1 / zoom.scale
+
+    if (zoom.scale > zoom.min_scale && zoom.scale < zoom.max_scale) {
+        pan.x -= mouse_uv[0] * pan_factor
+        pan.y -= mouse_uv[1] * pan_factor
+    } else if (
+        zoom.scale < zoom.min_scale && pan_factor <= 0
+        || zoom.scale > zoom.min_scale && pan_factor >= 0
+    ) {
+        const pan_factor_scroll = 1 / pscale1 - 1 / pscale2
+        const a = 0.2
+        // it just works tm
+        const f = pan_factor + a * exp(
+            (pan_factor_scroll - pan_factor) / a
+        ) - a
+        const cur_d = pow(pan.xv, 2) + pow(pan.yv, 2)
+        const prop_d = (
+            pow(mouse_uv[0] * f, 2)
+            + pow(mouse_uv[1] * f, 2)
+        )
+        if (prop_d > cur_d) {
+            pan.xv = -mouse_uv[0] * f
+            pan.yv = -mouse_uv[1] * f
+        }
+    }
+
+    // pan
+    // todo: framerate independence, mouse velocity smoothing
     if (pan.held) {
         const dx = (mouse.x - mouse.px) / zoom.scale / short_edge
         const dy = (mouse.y - mouse.py) / zoom.scale / short_edge
@@ -115,32 +170,17 @@ function update_cam() {
         pan.x += dx
         pan.y += dy
     } else {
-        pan.xv *= 0.9
-        pan.yv *= 0.9
         pan.x += pan.xv
         pan.y += pan.yv
+        pan.xv *= 0.9
+        pan.yv *= 0.9
     }
-
-    // zoom
-    const pscale = zoom.scale
-    zoom.scale *= zoom.vel_factor
-    zoom.max_scale = 20
-    zoom.scale = clamp(zoom.scale, 0.5, zoom.max_scale)
-    zoom.vel_factor = lerp(zoom.vel_factor, 1, 0.2)
-
-    // update pan to keep mouse in place
-    const mouse_uv = [
-        (mouse.x - innerWidth / 2) / short_edge,
-        (mouse.y - innerHeight / 2) / short_edge,
-    ]
-    const delta_uv = [
-        mouse_uv[0] * (1 / pscale - 1 / zoom.scale),
-        mouse_uv[1] * (1 / pscale - 1 / zoom.scale),
-    ]
-    pan.x -= delta_uv[0]
-    pan.y -= delta_uv[1]
 }
 
+const log2 = Math.log2
+const exp = Math.exp
+const pow = Math.pow
+const abs = Math.abs
 const min = Math.min
 const max = Math.max
 function clamp(x, a, b) {
@@ -148,6 +188,10 @@ function clamp(x, a, b) {
 }
 function lerp(a, b, t) {
     return a * (1 - t) + b * t
+}
+function inv_lerp(a, b, x) {
+    if (b - a === 0) return 0 
+    return (x - a) / (b - a)
 }
 function mod(x, n) {
     return ((x % n) + n) % n

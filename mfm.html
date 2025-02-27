@@ -352,13 +352,14 @@ vec4 get_ew_color(ivec2 p) {
     // cells have probability x of being candidate ew centers
     // if any two would overlap (distance <= 8), both are invalid
     // 145 cells in a manhattan distance 8 window
-    // P(ew center) = x * (1-x)^144
-    // max is 0.0025 at x = 1/145 = 0.0069
+    // P(ew center) = x * (1 - x)^144
+    // max is 0.0025 at x = 1 / 145 = 0.0069
 
     // approximate with 12x12 cell tiles proposing 0 or 1 candidates
     // can look at neighboring 8 tiles to determine validity
     // (of md4 event windows that overlap with this cell's tile)
-    // P(tile has candidate) = (1-x)^64 = 0.6422
+    // P(tile has candidate) = 1 - (1 - x)^144 = 0.6308
+    // (optimal rate would be a bit higher with 0 or 1 approximation)
 
     // todo: test different proposal rates,
     // try 2nd proposal pass to increase density
@@ -379,31 +380,31 @@ vec4 get_ew_color(ivec2 p) {
     // or "throw it away" if it "wasnt actually proposed"
     ivec2 invalid = o.zz * 99;
     ivec2 p00 = (
-        r00.z < 0.6422 ? o.xx * 12 + ivec2(r00.xy * 12.0) : invalid
+        r00.z < 0.6308 ? o.xx * 12 + ivec2(r00.xy * 12.0) : invalid
     );
     ivec2 p01 = (
-        r01.z < 0.6422 ? o.xy * 12 + ivec2(r01.xy * 12.0) : invalid
+        r01.z < 0.6308 ? o.xy * 12 + ivec2(r01.xy * 12.0) : invalid
     );
     ivec2 p02 = (
-        r02.z < 0.6422 ? o.xz * 12 + ivec2(r02.xy * 12.0) : invalid
+        r02.z < 0.6308 ? o.xz * 12 + ivec2(r02.xy * 12.0) : invalid
     );
     ivec2 p10 = (
-        r10.z < 0.6422 ? o.yx * 12 + ivec2(r10.xy * 12.0) : invalid
+        r10.z < 0.6308 ? o.yx * 12 + ivec2(r10.xy * 12.0) : invalid
     );
     ivec2 p11 = (
-        r11.z < 0.6422 ? o.yy * 12 + ivec2(r11.xy * 12.0) : invalid
+        r11.z < 0.6308 ? o.yy * 12 + ivec2(r11.xy * 12.0) : invalid
     );
     ivec2 p12 = (
-        r12.z < 0.6422 ? o.yz * 12 + ivec2(r12.xy * 12.0) : invalid
+        r12.z < 0.6308 ? o.yz * 12 + ivec2(r12.xy * 12.0) : invalid
     );
     ivec2 p20 = (
-        r20.z < 0.6422 ? o.zx * 12 + ivec2(r20.xy * 12.0) : invalid
+        r20.z < 0.6308 ? o.zx * 12 + ivec2(r20.xy * 12.0) : invalid
     );
     ivec2 p21 = (
-        r21.z < 0.6422 ? o.zy * 12 + ivec2(r21.xy * 12.0) : invalid
+        r21.z < 0.6308 ? o.zy * 12 + ivec2(r21.xy * 12.0) : invalid
     );
     ivec2 p22 = (
-        r22.z < 0.6422 ? o.zz * 12 + ivec2(r22.xy * 12.0) : invalid
+        r22.z < 0.6308 ? o.zz * 12 + ivec2(r22.xy * 12.0) : invalid
     );
 
     // also throw away overlaps
@@ -436,7 +437,8 @@ vec4 get_ew_color(ivec2 p) {
 
     bool sep_21_22 = sum(abs(p21 - p22)) > 8;
 
-    if (do_fix){
+    if (do_fix)
+    {
     p00 = sep_00_01 && sep_00_10 && sep_00_11 ? p00 : invalid;
     p01 = (
         sep_00_01 && sep_01_02 && sep_01_10 && sep_01_11 && sep_01_12
@@ -631,7 +633,7 @@ function draw() {
 
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
 }
-do_fix = false
+do_fix = true
 </script>
 
 

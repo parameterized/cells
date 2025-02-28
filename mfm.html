@@ -341,11 +341,15 @@ ivec2 modi(ivec2 x, int k) {
     return x - floor_div(x, k) * k;
 }
 
-vec4 get_ew_color(ivec2 p) {
-    ivec2 tile = floor_div(p, 12);
-    if (p == tile * 12) {
-        return vec4(0.0, 1.0, 0.0, 1.0);
-    }
+float get_font(int id, vec4 box, vec2 p) {
+    vec2 box_uv = clamp((p - box.xy) / box.zw, 0.0, 1.0);
+    vec2 char_uv = (box_uv + vec2(float(id), 0.0)) / vec2(10.0, 1.0);
+    char_uv.y = 1.0 - char_uv.y;
+    return texture(font, char_uv).a;
+}
+
+ivec4 get_ew_coords(ivec2 p) {
+    // returns: (x, y, distance, id)
 
     // related to poisson disk sampling and blue noise
 
@@ -366,6 +370,7 @@ vec4 get_ew_color(ivec2 p) {
 
     // get (x, y, proposal rng) for tile and neighbors
     ivec3 o = ivec3(-1, 0, 1);
+    ivec2 tile = floor_div(p, 12);
     vec3 r00 = hash(ivec3(tile + o.xx, time_step));
     vec3 r01 = hash(ivec3(tile + o.xy, time_step));
     vec3 r02 = hash(ivec3(tile + o.xz, time_step));
@@ -461,36 +466,84 @@ vec4 get_ew_color(ivec2 p) {
     p22 = sep_11_22 && sep_12_22 && sep_21_22 ? p22 : invalid;
     }
 
-    // get final event window distance for this cell
-    // todo: get/show cell ids
-    ivec2 p_rel = modi(p, 12);
-    float ew_dist = float(min(
-        min(
-            min(
-                min(
-                    sum(abs(p_rel - p00)),
-                    sum(abs(p_rel - p01))
-                ), min(
-                    sum(abs(p_rel - p02)),
-                    sum(abs(p_rel - p10))
-                )
-            ), min(
-                min(
-                    sum(abs(p_rel - p11)),
-                    sum(abs(p_rel - p12))
-                ), min(
-                    sum(abs(p_rel - p20)),
-                    sum(abs(p_rel - p21))
-                )
-            )
-        ),
-        sum(abs(p_rel - p22))
-    ));
+    // get cell position relative to closest event window
 
-    return vec4(
-        0.0, vec2(1.0 - pow(ew_dist / 5.0, 2.0)),
-        ew_dist < 4.1 ? 1.0 : 0.0
-    );
+    ivec2 p_rel_tile = modi(p, 12);
+
+    // position relative to each possible window
+    ivec3 pr_00 = ivec3(p_rel_tile - p00, 0);
+    ivec3 pr_01 = ivec3(p_rel_tile - p01, 0);
+    ivec3 pr_02 = ivec3(p_rel_tile - p02, 0);
+    ivec3 pr_10 = ivec3(p_rel_tile - p10, 0);
+    ivec3 pr_11 = ivec3(p_rel_tile - p11, 0);
+    ivec3 pr_12 = ivec3(p_rel_tile - p12, 0);
+    ivec3 pr_20 = ivec3(p_rel_tile - p20, 0);
+    ivec3 pr_21 = ivec3(p_rel_tile - p21, 0);
+    ivec3 pr_22 = ivec3(p_rel_tile - p22, 0);
+
+    // add manhattan distances
+    pr_00.z = sum(abs(pr_00.xy));
+    pr_01.z = sum(abs(pr_01.xy));
+    pr_02.z = sum(abs(pr_02.xy));
+    pr_10.z = sum(abs(pr_10.xy));
+    pr_11.z = sum(abs(pr_11.xy));
+    pr_12.z = sum(abs(pr_12.xy));
+    pr_20.z = sum(abs(pr_20.xy));
+    pr_21.z = sum(abs(pr_21.xy));
+    pr_22.z = sum(abs(pr_22.xy));
+
+    // reduce to closest
+    ivec3 pr_0_1 = pr_00.z < pr_01.z ? pr_00 : pr_01;
+    ivec3 pr_2_3 = pr_02.z < pr_10.z ? pr_02 : pr_10;
+    ivec3 pr_4_5 = pr_11.z < pr_12.z ? pr_11 : pr_12;
+    ivec3 pr_6_7 = pr_20.z < pr_21.z ? pr_20 : pr_21;
+
+    ivec3 pr_0_3 = pr_0_1.z < pr_2_3.z ? pr_0_1 : pr_2_3;
+    ivec3 pr_4_7 = pr_4_5.z < pr_6_7.z ? pr_4_5 : pr_6_7;
+
+    ivec3 pr_0_7 = pr_0_3.z < pr_4_7.z ? pr_0_3 : pr_4_7;
+    ivec4 p_rel_ew = ivec4(pr_0_7.z < pr_22.z ? pr_0_7 : pr_22, 0);
+
+    // add id
+    // todo: invert y earlier
+    p_rel_ew.y = -p_rel_ew.y;
+    //p_rel_ew.w = ...;
+
+    return p_rel_ew;
+}
+
+vec4 ew_colors[] = vec4[](
+    vec4(250.0, 250.0, 242.0, 255.0) / 255.0,
+    vec4(247.0, 253.0, 245.0, 255.0) / 255.0,
+    vec4(235.0, 254.0, 253.0, 255.0) / 255.0,
+    vec4(217.0, 241.0, 253.0, 255.0) / 255.0,
+    vec4(250.0, 217.0, 217.0, 255.0) / 255.0,
+    vec4(229.0, 230.0, 230.0, 255.0) / 255.0
+);
+
+vec4 get_ew_color(vec2 p) {
+    vec4 color = vec4(0.0);
+    ivec4 ew_coords = get_ew_coords(ivec2(floor(p)));
+    int d = ew_coords.z;
+    if (d <= 5) {
+        color = ew_colors[d];
+    }
+    if (d <= 4) {
+        float num_alpha = get_font(
+            d,
+            vec4(0.25, 0.25, 0.5, 0.5),
+            mod(p, 1.0)
+        );
+        float num_visibility = smoothstep(
+            1.0, log2(16.0), log2(zoom_scale)
+        );
+        color = mix(
+            color,
+            vec4(vec3(0.0), 1.0),
+            num_alpha * num_visibility
+        );
+    }
+    return color;
 }
 
 vec2 get_cam_uv() {
@@ -504,23 +557,23 @@ void main() {
     float value = texture(cells, cam_uv).r;
 
     // numbers
+    float num_visibility = smoothstep(
+        1.0, log2(16.0), log2(zoom_scale)
+    );
     vec2 cs = vec2(textureSize(cells, 0));
     vec2 cell_uv = mod(cam_uv * cs, vec2(1.0));
-    cell_uv = clamp(cell_uv * 2.0 - 0.5, vec2(0.0), vec2(1.0));
-    float display_num = round(value * 9.0);
-    vec2 num_uv = (
-        cell_uv + vec2(display_num, 0.0)
-    ) / vec2(10.0, 1.0);
-    num_uv.y = 1.0 - num_uv.y;
-    float num_visibility = smoothstep(
-        0.1, log2(20.0), log2(zoom_scale)
+    float num_alpha = get_font(
+        int(value * 9.0 + 0.5),
+        vec4(0.25, 0.25, 0.5, 0.5),
+        cell_uv
     );
-    float num_value = texture(font, num_uv).a * num_visibility;
-    value = mix(value, mod(value + 0.5, 1.0), num_value);
+    value = mix(
+        value, mod(value + 0.5, 1.0), num_alpha * num_visibility
+    );
 
     color = vec4(vec3(value), 1.0);
 
-    vec4 ew_color = get_ew_color(ivec2(floor(cam_uv * cs)));
+    vec4 ew_color = get_ew_color(cam_uv * cs);
     color.rgb = mix(color.rgb, ew_color.rgb, ew_color.a);
 }
 </script>

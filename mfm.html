@@ -329,12 +329,19 @@ vec3 hash(ivec3 ix) {
 int sum(ivec2 x) {
     return x.x + x.y;
 }
+int sum(ivec3 x) {
+    return x.x + x.y + x.z;
+}
 
 int floor_div(int x, int k) {
     return x < 0 ? -((abs(x) - 1) / k) - 1 : x / k;
 }
 ivec2 floor_div(ivec2 x, int k) {
     return ivec2(floor_div(x.x, k), floor_div(x.y, k));
+}
+
+int ceil_div(int x, int k) {
+    return x / k + int(x % k != 0 && (x < 0) == (k < 0));
 }
 
 ivec2 modi(ivec2 x, int k) {
@@ -493,6 +500,7 @@ ivec4 get_ew_coords(ivec2 p) {
     pr_22.z = sum(abs(pr_22.xy));
 
     // reduce to closest
+
     ivec3 pr_0_1 = pr_00.z < pr_01.z ? pr_00 : pr_01;
     ivec3 pr_2_3 = pr_02.z < pr_10.z ? pr_02 : pr_10;
     ivec3 pr_4_5 = pr_11.z < pr_12.z ? pr_11 : pr_12;
@@ -505,9 +513,29 @@ ivec4 get_ew_coords(ivec2 p) {
     ivec4 p_rel_ew = ivec4(pr_0_7.z < pr_22.z ? pr_0_7 : pr_22, 0);
 
     // add id
+
     // todo: invert y earlier
     p_rel_ew.y = -p_rel_ew.y;
-    //p_rel_ew.w = ...;
+
+    ivec3 offsets = ivec3(0);
+    int x = p_rel_ew.x;
+    int y = p_rel_ew.y;
+    int md = p_rel_ew.z;
+    int mag = max(abs(x), abs(y));
+
+    offsets.x = 2 * md * (md - 1) + int(md > 0);
+    if (mag > 1) {
+        int min_mag = ceil_div(md, 2);
+        int phase = ((md + 1) % 2) * 4;
+        offsets.y = max((mag - min_mag) * 8 - phase, 0);
+    }
+    offsets.z = md == 0 ? 0 : (
+        md == mag ? (x + md) / md + int(x + y > 0)
+        : x < 0 ? 2 * int(md + x > -x) + int(y > 0)
+        : abs(x) == abs(y) ? 2 + int(y > 0)
+        : 4 + 2 * int(md - x < x) + int(y > 0)
+    );
+    p_rel_ew.w = sum(offsets);
 
     return p_rel_ew;
 }
@@ -525,18 +553,30 @@ vec4 get_ew_color(vec2 p) {
     vec4 color = vec4(0.0);
     ivec4 ew_coords = get_ew_coords(ivec2(floor(p)));
     int d = ew_coords.z;
+    int id = ew_coords.w;
     if (d <= 5) {
         color = ew_colors[d];
     }
     if (d <= 4) {
-        float num_alpha = get_font(
-            d,
-            vec4(0.25, 0.25, 0.5, 0.5),
-            mod(p, 1.0)
-        );
         float num_visibility = smoothstep(
             1.0, log2(16.0), log2(zoom_scale)
         );
+        float num_alpha = 0.0;
+        vec2 cell_uv = mod(p, 1.0);
+        if (id < 10) {
+            num_alpha = get_font(
+                id, vec4(0.35, 0.35, 0.3, 0.3), cell_uv
+            );
+        } else {
+            num_alpha = max(
+                get_font(
+                    id / 10, vec4(0.2, 0.35, 0.3, 0.3), cell_uv
+                ),
+                get_font(
+                    id % 10, vec4(0.5, 0.35, 0.3, 0.3), cell_uv
+                )
+            );
+        }
         color = mix(
             color,
             vec4(vec3(0.0), 1.0),

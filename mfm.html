@@ -9,6 +9,7 @@
 
 <script id="main">
 const grid_size = 256
+let show_ew = false
 
 onload = function() {
     load_webgl()
@@ -22,8 +23,10 @@ function loop() {
     if (mouse_held(0)) {
         interact()
     }
-
-    if (!paused) sim_step()
+    if (!paused) {
+        for (let i=0; i < 100; i++)
+            sim_step()
+    }
     draw()
 
     mouse.px = mouse.x
@@ -88,7 +91,7 @@ onkeydown = e => {
     } else if (e.key === "ArrowRight") {
         sim_step()
     } else if (e.key === "f") {
-        do_fix = !do_fix
+        show_ew = !show_ew
     }
 }
 </script>
@@ -209,6 +212,7 @@ out vec2 uv;
 void main() {
     gl_Position = vec4(pos, 0, 1);
     uv = pos * 0.5 + 0.5;
+    uv.y = 1.0 - uv.y;
 }
 </script>
 
@@ -223,40 +227,28 @@ out float cell;
 uniform sampler2D cells;
 uniform int time_step;
 
-vec3 hash(ivec3 ix) {
-    // source: https://www.shadertoy.com/view/XlXcW4
-    uvec3 x = uvec3(ix);
-    const uint k = 1103515245U;
-    x = ((x >> 8U)^x.yzx) * k;
-    x = ((x >> 8U)^x.yzx) * k;
-    x = ((x >> 8U)^x.yzx) * k;
-    return vec3(x) * (1.0 / float(0xffffffffU));
-}
+/*<snip_ew_sim>*/
 
 void main() {
     ivec2 p = ivec2(gl_FragCoord.xy);
+    vec2 res = vec2(textureSize(cells, 0));
+    cell = texelFetch(cells, p, 0).r;
+    ivec4 ew_coords = get_ew_coords(p);
+    if (ew_coords.z > 1) { return; }
+    int id = ew_coords.w;
 
-    // cycle through 2-cell event window grid alignments & phases
-    // note: has some directional bias
-    ivec2 dir = bool(time_step % 2) ? ivec2(1, 0) : ivec2(0, 1);
-    int grid_phase = (time_step / 2) % 2;
-    int cell_phase = ((p.x * dir.x + p.y * dir.y) + grid_phase) % 2;
-    ivec2 window_p = p - cell_phase * dir;
-
-    vec3 rng = hash(ivec3(window_p, time_step));
-    bool swap = rng.g < 0.5;
-    if (swap) {
-        vec2 res = vec2(textureSize(cells, 0));
-        float other_cell = texture(
+    ivec2 center = p - ew_coords.xy;
+    vec3 rng = hash(ivec3(center, time_step));
+    int swap_with = int(rng.g * 5.0);
+    if (id == swap_with) {
+        cell = texture(cells, vec2(center) / res).r;
+        if (id == 0)
+            cell = min(cell + 0.005, 0.8 + rng.b * 0.2);
+    } else if (id == 0) {
+        cell = texture(
             cells,
-            vec2(window_p + dir * (1 - cell_phase)) / res
+            vec2(p + ew_id_to_xy(swap_with)) / res
         ).r;
-        cell = other_cell;
-    } else {
-        cell = min(
-            texelFetch(cells, p, 0).r + 0.005,
-            0.8 + rng.b * 0.2
-        );
     }
 }
 </script>
@@ -272,15 +264,7 @@ uniform int time_step;
 uniform vec2 mouse;
 uniform float brush_size;
 
-vec3 hash(ivec3 ix) {
-    // source: https://www.shadertoy.com/view/XlXcW4
-    uvec3 x = uvec3(ix);
-    const uint k = 1103515245U;
-    x = ((x >> 8U)^x.yzx) * k;
-    x = ((x >> 8U)^x.yzx) * k;
-    x = ((x >> 8U)^x.yzx) * k;
-    return vec3(x) * (1.0 / float(0xffffffffU));
-}
+/*<snip_math>*/
 
 void main() {
     ivec2 p = ivec2(gl_FragCoord.xy);
@@ -314,8 +298,46 @@ uniform vec2 screen_size;
 uniform float zoom_scale;
 uniform vec2 offset;
 uniform int time_step;
-uniform bool do_fix;
+uniform bool show_ew;
 
+/*<snip_ew_draw>*/
+
+vec2 get_cam_uv() {
+    vec2 ss = screen_size;
+    vec2 aspect_scale = ss / min(ss.x, ss.y);
+    return 0.5 + (uv - 0.5) * aspect_scale / zoom_scale + offset;
+}
+
+void main() {
+    vec2 cam_uv = get_cam_uv();
+    float value = texture(cells, cam_uv).r;
+
+    // numbers
+    float num_visibility = smoothstep(
+        1.0, log2(16.0), log2(zoom_scale)
+    );
+    vec2 cs = vec2(textureSize(cells, 0));
+    vec2 cell_uv = mod(cam_uv * cs, vec2(1.0));
+    float num_alpha = get_font(
+        int(value * 9.0 + 0.5),
+        vec4(0.25, 0.25, 0.5, 0.5),
+        cell_uv
+    );
+    value = mix(
+        value, mod(value + 0.5, 1.0), num_alpha * num_visibility
+    );
+
+    color = vec4(vec3(value), 1.0);
+
+    if (show_ew) {
+        vec4 ew_color = get_ew_color(cam_uv * cs);
+        color.rgb = mix(color.rgb, ew_color.rgb, ew_color.a);
+    }
+}
+</script>
+
+
+<script type="x-shader/x-fragment" id="snip_math">
 vec3 hash(ivec3 ix) {
     // source: https://www.shadertoy.com/view/XlXcW4
     uvec3 x = uvec3(ix);
@@ -347,13 +369,11 @@ int ceil_div(int x, int k) {
 ivec2 modi(ivec2 x, int k) {
     return x - floor_div(x, k) * k;
 }
+</script>
 
-float get_font(int id, vec4 box, vec2 p) {
-    vec2 box_uv = clamp((p - box.xy) / box.zw, 0.0, 1.0);
-    vec2 char_uv = (box_uv + vec2(float(id), 0.0)) / vec2(10.0, 1.0);
-    char_uv.y = 1.0 - char_uv.y;
-    return texture(font, char_uv).a;
-}
+
+<script type="x-shader/x-fragment" id="snip_ew_sim">
+/*<snip_math>*/
 
 ivec4 get_ew_coords(ivec2 p) {
     // returns: (x, y, distance, id)
@@ -449,8 +469,6 @@ ivec4 get_ew_coords(ivec2 p) {
 
     bool sep_21_22 = sum(abs(p21 - p22)) > 8;
 
-    if (do_fix)
-    {
     p00 = sep_00_01 && sep_00_10 && sep_00_11 ? p00 : invalid;
     p01 = (
         sep_00_01 && sep_01_02 && sep_01_10 && sep_01_11 && sep_01_12
@@ -471,7 +489,6 @@ ivec4 get_ew_coords(ivec2 p) {
         sep_10_21 && sep_11_21 && sep_12_21 && sep_20_21 && sep_21_22
     ) ? p21 : invalid;
     p22 = sep_11_22 && sep_12_22 && sep_21_22 ? p22 : invalid;
-    }
 
     // get cell position relative to closest event window
 
@@ -514,9 +531,6 @@ ivec4 get_ew_coords(ivec2 p) {
 
     // add id
 
-    // todo: invert y earlier
-    p_rel_ew.y = -p_rel_ew.y;
-
     ivec3 offsets = ivec3(0);
     int x = p_rel_ew.x;
     int y = p_rel_ew.y;
@@ -538,6 +552,32 @@ ivec4 get_ew_coords(ivec2 p) {
     p_rel_ew.w = sum(offsets);
 
     return p_rel_ew;
+}
+
+ivec2 ew_id_to_xy(int id) {
+    // todo: full implementation
+    if (id == 0) {
+        return ivec2(0, 0);
+    } else if (id == 1) {
+        return ivec2(-1, 0);
+    } else if (id == 2) {
+        return ivec2(0, -1);
+    } else if (id == 3) {
+        return ivec2(0, 1);
+    } else if (id == 4) {
+        return ivec2(1, 0);
+    }
+}
+</script>
+
+
+<script type="x-shader/x-fragment" id="snip_ew_draw">
+/*<snip_ew_sim>*/
+
+float get_font(int id, vec4 box, vec2 p) {
+    vec2 box_uv = clamp((p - box.xy) / box.zw, 0.0, 1.0);
+    vec2 char_uv = (box_uv + vec2(float(id), 0.0)) / vec2(10.0, 1.0);
+    return texture(font, char_uv).a;
 }
 
 vec4 ew_colors[] = vec4[](
@@ -585,37 +625,6 @@ vec4 get_ew_color(vec2 p) {
     }
     return color;
 }
-
-vec2 get_cam_uv() {
-    vec2 ss = screen_size;
-    vec2 aspect_scale = ss / min(ss.x, ss.y);
-    return 0.5 + (uv - 0.5) * aspect_scale / zoom_scale + offset;
-}
-
-void main() {
-    vec2 cam_uv = get_cam_uv();
-    float value = texture(cells, cam_uv).r;
-
-    // numbers
-    float num_visibility = smoothstep(
-        1.0, log2(16.0), log2(zoom_scale)
-    );
-    vec2 cs = vec2(textureSize(cells, 0));
-    vec2 cell_uv = mod(cam_uv * cs, vec2(1.0));
-    float num_alpha = get_font(
-        int(value * 9.0 + 0.5),
-        vec4(0.25, 0.25, 0.5, 0.5),
-        cell_uv
-    );
-    value = mix(
-        value, mod(value + 0.5, 1.0), num_alpha * num_visibility
-    );
-
-    color = vec4(vec3(value), 1.0);
-
-    vec4 ew_color = get_ew_color(cam_uv * cs);
-    color.rgb = mix(color.rgb, ew_color.rgb, ew_color.a);
-}
 </script>
 
 
@@ -640,6 +649,7 @@ function sim_step() {
         gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D,
         grid_cells[1], 0,
     )
+    gl.activeTexture(gl.TEXTURE0)
     gl.bindTexture(gl.TEXTURE_2D, grid_cells[0])
     gl.uniform1i(
         gl.getUniformLocation(sim_program, "time_step"),
@@ -661,7 +671,7 @@ function interact() {
         1,
     )
     const my = mod(
-        0.5 - (mouse.y - innerHeight / 2) / scale + pan.y,
+        0.5 + (mouse.y - innerHeight / 2) / scale - pan.y,
         1,
     )
 
@@ -713,20 +723,19 @@ function draw() {
     )
     gl.uniform2f(
         gl.getUniformLocation(draw_program, "offset"),
-        -pan.x, pan.y,
+        -pan.x, -pan.y,
     )
     gl.uniform1i(
         gl.getUniformLocation(draw_program, "time_step"),
         time_step,
     )
     gl.uniform1i(
-        gl.getUniformLocation(draw_program, "do_fix"),
-        do_fix,
+        gl.getUniformLocation(draw_program, "show_ew"),
+        show_ew,
     )
 
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
 }
-do_fix = true
 </script>
 
 
@@ -749,16 +758,35 @@ let sim_program, interact_program, draw_program
 
 function load_webgl() {
     // load shaders
+
     const source = id => document.getElementById(id).innerText.trim()
+
+    const snip_math = source("snip_math")
+    const snip_ew_sim = source("snip_ew_sim").replace(
+        "/*<snip_math>*/", snip_math
+    )
+    const snip_ew_draw = source("snip_ew_draw").replace(
+        "/*<snip_ew_sim>*/", snip_ew_sim
+    )
+    const snips = { snip_math, snip_ew_sim, snip_ew_draw }
+
+    function shimmed(id) {
+        let s = source(id)
+        for ([k, v] of Object.entries(snips)) {
+            s = s.replace(`/*<${k}>*/`, v)
+        }
+        return s
+    }
+
     const vert_source = source("vert")
     sim_program = create_program(
-        vert_source, source("frag_sim"),
+        vert_source, shimmed("frag_sim")
     )
     interact_program = create_program(
-        vert_source, source("frag_interact")
+        vert_source, shimmed("frag_interact")
     )
     draw_program = create_program(
-        vert_source, source("frag_draw")
+        vert_source, shimmed("frag_draw")
     )
 
     // make font texture

@@ -335,24 +335,36 @@ vec2 get_cam_uv() {
 
 void main() {
     vec2 cam_uv = get_cam_uv();
-    float value = float(
-        texture(cells, mod(cam_uv, 1.0)).r
-    ) * (1.0 / float(~0u));
+    vec2 cs = vec2(textureSize(cells, 0));
+    uvec4 cell = texture(cells, mod(cam_uv, 1.0));
+
+    float cell_val = float(cell.r) * (1.0 / float(~0u));
+    color = vec4(vec3(cell_val), 1.0);
+
+    // event windows
+    vec4 ew_color = vec4(0.0);
+    if (show_ew) {
+        ew_color = get_ew_color(mod(cam_uv, 1.0) * cs);
+        color.rgb = mix(color.rgb, ew_color.rgb, ew_color.a * 0.5);
+    }
 
     // numbers
     float num_visibility = smoothstep(
         1.0, log2(16.0), log2(zoom_scale)
-    );
-    vec2 cs = vec2(textureSize(cells, 0));
-    vec2 cell_uv = mod(cam_uv * cs, 1.0);
-    float num_alpha = get_font(
-        int(value * 9.0 + 0.5),
-        vec4(0.25, 0.25, 0.5, 0.5),
-        cell_uv
-    );
-    value = mix(
-        value, mod(value + 0.5, 1.0), num_alpha * num_visibility
-    );
+    ) * (1.0 - ew_color.a);
+    if (num_visibility > 0.01) {
+        vec2 cell_uv = mod(cam_uv * cs, 1.0);
+        float num_alpha = get_font(
+            int(cell_val * 9.0 + 0.5),
+            vec4(0.25, 0.25, 0.5, 0.5),
+            cell_uv
+        );
+        color.rgb = mix(
+            color.rgb,
+            mod(color.rgb + 0.5, 1.0),
+            num_alpha * num_visibility
+        );
+    }
 
     // lower contrast in wrapped cells
     if (
@@ -366,14 +378,7 @@ void main() {
         float ping = sin(d * 10.0 - time_sec * 5.0);
         ping = 0.9 + 0.1 * ping * min(max(d - 2.0, 0.0), 1.0);
         desat *= ping;
-        value = mix(value, 0.5, desat);
-    }
-
-    color = vec4(vec3(value), 1.0);
-
-    if (show_ew) {
-        vec4 ew_color = get_ew_color(mod(cam_uv, 1.0) * cs);
-        color.rgb = mix(color.rgb, ew_color.rgb, ew_color.a);
+        color.rgb = mix(color.rgb, vec3(0.5), desat);
     }
 }
 </script>

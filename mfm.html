@@ -12,7 +12,6 @@ const grid_size = 256
 const time_zero = performance.now()
 let time_sec = 0
 let time_step = 0
-let show_ew = false
 
 onload = function() {
     load_webgl()
@@ -43,6 +42,8 @@ function loop() {
 
 <script id="controls">
 let paused = false
+let show_ew = false
+
 const mouse = {
     x: 0, y: 0,
     px: 0, py: 0,
@@ -225,10 +226,11 @@ void main() {
 #version 300 es
 precision highp float;
 precision highp int;
+precision highp usampler2D;
 
-out float cell;
+out uvec4 cell;
 
-uniform sampler2D cells;
+uniform usampler2D cells;
 uniform int time_step;
 
 /*<snip_ew_sim>*/
@@ -236,7 +238,7 @@ uniform int time_step;
 void main() {
     ivec2 p = ivec2(gl_FragCoord.xy);
     ivec2 res = textureSize(cells, 0);
-    cell = texelFetch(cells, p, 0).r;
+    cell = texelFetch(cells, p, 0);
     ivec4 ew_coords = get_ew_coords(p);
     int id = ew_coords.w;
     ivec2 center = p - ew_coords.xy;
@@ -250,13 +252,18 @@ void main() {
     vec3 rng = hash(ivec3(center, time_step));
     int swap_with = int(rng.g * 5.0);
     if (id == swap_with) {
-        cell = texelFetch(cells, center, 0).r;
-        if (id == 0)
-            cell = min(cell + 0.005, 0.8 + rng.b * 0.2);
+        cell = texelFetch(cells, center, 0);
+        if (id == 0) {
+            float maxu = float(~0u);
+            cell.r = min(
+                cell.r + min(uint(0.005 * maxu), ~0u - cell.r),
+                uint((0.79 + rng.b * 0.2) * maxu)
+            );
+        }
     } else if (id == 0) {
         ivec2 sp = p + ew_id_to_xy(swap_with);
         if (min(sp.x, sp.y) >= 0 && sp.x < res.x && sp.y < res.y)
-            cell = texelFetch(cells, sp, 0).r;
+            cell = texelFetch(cells, sp, 0);
     }
 }
 </script>
@@ -264,10 +271,13 @@ void main() {
 
 <script type="x-shader/x-fragment" id="frag_interact">
 #version 300 es
-precision mediump float;
-out float cell;
+precision highp float;
+precision highp int;
+precision highp usampler2D;
 
-uniform sampler2D cells;
+out uvec4 cell;
+
+uniform usampler2D cells;
 uniform int time_step;
 uniform vec2 mouse;
 uniform float brush_size;
@@ -283,23 +293,29 @@ void main() {
         for (int j = -1; j <= 1; ++j) {
             vec2 uv_tile = uv + vec2(i, j);
             if (distance(uv_tile, mouse) < brush_size) {
-                cell = hash(ivec3(p, time_step)).r / 2.0;
+                cell = uvec4(
+                    uhash(ivec3(p, time_step)).r / 2u,
+                    uvec3(0u)
+                );
                 return;
             }
         }
     }
-    cell = texelFetch(cells, p, 0).r;
+    cell = texelFetch(cells, p, 0);
 }
 </script>
 
 
 <script type="x-shader/x-fragment" id="frag_draw">
 #version 300 es
-precision mediump float;
+precision highp float;
+precision highp int;
+precision highp usampler2D;
+
 in vec2 uv;
 out vec4 color;
 
-uniform sampler2D cells;
+uniform usampler2D cells;
 uniform sampler2D font;
 
 uniform vec2 screen_size;
@@ -319,7 +335,9 @@ vec2 get_cam_uv() {
 
 void main() {
     vec2 cam_uv = get_cam_uv();
-    float value = texture(cells, cam_uv).r;
+    float value = float(
+        texture(cells, mod(cam_uv, 1.0)).r
+    ) * (1.0 / float(~0u));
 
     // numbers
     float num_visibility = smoothstep(
@@ -362,14 +380,17 @@ void main() {
 
 
 <script type="x-shader/x-fragment" id="snip_math">
-vec3 hash(ivec3 ix) {
+uvec3 uhash(ivec3 ix) {
     // source: https://www.shadertoy.com/view/XlXcW4
     uvec3 x = uvec3(ix);
-    const uint k = 1103515245U;
-    x = ((x >> 8U)^x.yzx) * k;
-    x = ((x >> 8U)^x.yzx) * k;
-    x = ((x >> 8U)^x.yzx) * k;
-    return vec3(x) * (1.0 / float(0xffffffffU));
+    const uint k = 1103515245u;
+    x = ((x >> 8u)^x.yzx) * k;
+    x = ((x >> 8u)^x.yzx) * k;
+    x = ((x >> 8u)^x.yzx) * k;
+    return x;
+}
+vec3 hash(ivec3 ix) {
+    return vec3(uhash(ix)) * (1.0 / float(~0u));
 }
 
 int sum(ivec2 x) {
@@ -752,6 +773,8 @@ function draw() {
     u1f("time_sec", time_sec)
     u1i("show_ew", show_ew)
 
+    gl.enableVertexAttribArray(0)
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0)
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
 }
 </script>
@@ -770,7 +793,7 @@ const fb = gl.createFramebuffer()
 gl.bindBuffer(gl.ARRAY_BUFFER, buffer)
 gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW)
 
-let grid_cells = [new_tex(grid_size), new_tex(grid_size)]
+let grid_cells = [new_cells(grid_size), new_cells(grid_size)]
 let font_tex
 let sim_program, interact_program, draw_program
 
@@ -849,15 +872,15 @@ function create_program(vert_source, frag_source) {
     return program
 }
 
-function new_tex(size) {
+function new_cells(size) {
     const tex = gl.createTexture()
     gl.bindTexture(gl.TEXTURE_2D, tex)
-    const pixels = new Uint8Array(size * size).map(
-        () => Math.random() * 128 + 128
+    const pixels = new Uint32Array(size * size * 4).map(
+        () => (Math.random() * 0.5 - 0.5) * 2**32
     )
     gl.texImage2D(
-        gl.TEXTURE_2D, 0, gl.R8, size, size, 0,
-        gl.RED, gl.UNSIGNED_BYTE, pixels,
+        gl.TEXTURE_2D, 0, gl.RGBA32UI, size, size, 0,
+        gl.RGBA_INTEGER, gl.UNSIGNED_INT, pixels,
     )
     gl.texParameteri(
         gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST,

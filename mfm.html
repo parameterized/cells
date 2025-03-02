@@ -599,6 +599,12 @@ ivec4 get_ew_coords(ivec2 p) {
     );
     p_rel_ew.w = sum(offsets);
 
+    // invalidate if center is past grid edge
+    ivec2 c = p - p_rel_ew.xy;
+    ivec2 res = textureSize(cells, 0);
+    if (min(c.x, c.y) < 0 || c.x >= res.x || c.y >= res.y)
+        p_rel_ew.z = 9;
+
     return p_rel_ew;
 }
 
@@ -633,8 +639,7 @@ vec4 ew_colors[] = vec4[](
     vec4(247.0, 253.0, 245.0, 255.0) / 255.0,
     vec4(235.0, 254.0, 253.0, 255.0) / 255.0,
     vec4(217.0, 241.0, 253.0, 255.0) / 255.0,
-    vec4(250.0, 217.0, 217.0, 255.0) / 255.0,
-    vec4(229.0, 230.0, 230.0, 255.0) / 255.0
+    vec4(250.0, 217.0, 217.0, 255.0) / 255.0
 );
 
 vec4 get_ew_color(vec2 p) {
@@ -642,10 +647,8 @@ vec4 get_ew_color(vec2 p) {
     ivec4 ew_coords = get_ew_coords(ivec2(floor(p)));
     int d = ew_coords.z;
     int id = ew_coords.w;
-    if (d <= 5) {
-        color = ew_colors[d];
-    }
     if (d <= 4) {
+        color = ew_colors[d];
         float num_visibility = smoothstep(
             1.0, log2(16.0), log2(zoom_scale)
         );

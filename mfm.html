@@ -9,6 +9,9 @@
 
 <script id="main">
 const grid_size = 256
+const time_zero = performance.now()
+let time_sec = 0
+let time_step = 0
 let show_ew = false
 
 onload = function() {
@@ -17,6 +20,7 @@ onload = function() {
 }
 
 function loop() {
+    time_sec = (performance.now() - time_zero) / 1000
     fix_size()
     update_cam()
 
@@ -302,6 +306,7 @@ uniform vec2 screen_size;
 uniform float zoom_scale;
 uniform vec2 offset;
 uniform int time_step;
+uniform float time_sec;
 uniform bool show_ew;
 
 /*<snip_ew_draw>*/
@@ -336,9 +341,13 @@ void main() {
         min(cam_uv.x, cam_uv.y) < 0.0
         || max(cam_uv.x, cam_uv.y) > 1.0
     ) {
-        float desat = 0.2 + hash(
+        float desat = 0.3 + 0.2 * hash(
             ivec3(floor_div(cam_uv, 1.0), 0)
-        ).r * 0.2;
+        ).r;
+        float d = distance(cam_uv, vec2(0.5));
+        float ping = sin(d * 10.0 - time_sec * 5.0);
+        ping = 0.9 + 0.1 * ping * min(max(d - 2.0, 0.0), 1.0);
+        desat *= ping;
         value = mix(value, 0.5, desat);
     }
 
@@ -647,8 +656,6 @@ vec4 get_ew_color(vec2 p) {
 
 
 <script id="webgl_loop">
-let time_step = 0
-
 function fix_size() {
     if (
         canvas.width !== innerWidth
@@ -724,33 +731,26 @@ function draw() {
     gl.bindFramebuffer(gl.FRAMEBUFFER, null)
     gl.useProgram(draw_program)
 
+    const u1i = (name, x) => gl.uniform1i(
+        gl.getUniformLocation(draw_program, name), x)
+    const u1f = (name, x) => gl.uniform1f(
+        gl.getUniformLocation(draw_program, name), x)
+    const u2f = (name, x, y) => gl.uniform2f(
+        gl.getUniformLocation(draw_program, name), x, y)
+
     gl.activeTexture(gl.TEXTURE0)
     gl.bindTexture(gl.TEXTURE_2D, grid_cells[0])
     gl.activeTexture(gl.TEXTURE1)
     gl.bindTexture(gl.TEXTURE_2D, font_tex)
-    gl.uniform1i(gl.getUniformLocation(draw_program, "cells"), 0)
-    gl.uniform1i(gl.getUniformLocation(draw_program, "font"), 1)
+    u1i("cells", 0)
+    u1i("font", 1)
 
-    gl.uniform2f(
-        gl.getUniformLocation(draw_program, "screen_size"),
-        canvas.width, canvas.height,
-    )
-    gl.uniform1f(
-        gl.getUniformLocation(draw_program, "zoom_scale"),
-        zoom.scale,
-    )
-    gl.uniform2f(
-        gl.getUniformLocation(draw_program, "offset"),
-        -pan.x, -pan.y,
-    )
-    gl.uniform1i(
-        gl.getUniformLocation(draw_program, "time_step"),
-        time_step,
-    )
-    gl.uniform1i(
-        gl.getUniformLocation(draw_program, "show_ew"),
-        show_ew,
-    )
+    u2f("screen_size", canvas.width, canvas.height)
+    u1f("zoom_scale", zoom.scale)
+    u2f("offset", -pan.x, -pan.y)
+    u1i("time_step", time_step)
+    u1f("time_sec", time_sec)
+    u1i("show_ew", show_ew)
 
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
 }

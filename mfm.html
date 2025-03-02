@@ -331,6 +331,17 @@ void main() {
         value, mod(value + 0.5, 1.0), num_alpha * num_visibility
     );
 
+    // lower contrast in wrapped cells
+    if (
+        min(cam_uv.x, cam_uv.y) < 0.0
+        || max(cam_uv.x, cam_uv.y) > 1.0
+    ) {
+        float desat = 0.2 + hash(
+            ivec3(floor_div(cam_uv, 1.0), 0)
+        ).r * 0.2;
+        value = mix(value, 0.5, desat);
+    }
+
     color = vec4(vec3(value), 1.0);
 
     if (show_ew) {
@@ -364,6 +375,9 @@ int floor_div(int x, int k) {
 }
 ivec2 floor_div(ivec2 x, int k) {
     return ivec2(floor_div(x.x, k), floor_div(x.y, k));
+}
+ivec2 floor_div(vec2 x, float k) {
+    return ivec2(floor(x / k));
 }
 
 int ceil_div(int x, int k) {

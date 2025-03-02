@@ -231,24 +231,28 @@ uniform int time_step;
 
 void main() {
     ivec2 p = ivec2(gl_FragCoord.xy);
-    vec2 res = vec2(textureSize(cells, 0));
+    ivec2 res = textureSize(cells, 0);
     cell = texelFetch(cells, p, 0).r;
     ivec4 ew_coords = get_ew_coords(p);
-    if (ew_coords.z > 1) { return; }
     int id = ew_coords.w;
-
     ivec2 center = p - ew_coords.xy;
+
+    // skip if cell outside window or window center outside world
+    if (
+        ew_coords.z > 4 || min(center.x, center.y) < 0
+        || center.x >= res.x || center.y >= res.y
+    ) { return; }
+
     vec3 rng = hash(ivec3(center, time_step));
     int swap_with = int(rng.g * 5.0);
     if (id == swap_with) {
-        cell = texture(cells, vec2(center) / res).r;
+        cell = texelFetch(cells, center, 0).r;
         if (id == 0)
             cell = min(cell + 0.005, 0.8 + rng.b * 0.2);
     } else if (id == 0) {
-        cell = texture(
-            cells,
-            vec2(p + ew_id_to_xy(swap_with)) / res
-        ).r;
+        ivec2 sp = p + ew_id_to_xy(swap_with);
+        if (min(sp.x, sp.y) >= 0 && sp.x < res.x && sp.y < res.y)
+            cell = texelFetch(cells, sp, 0).r;
     }
 }
 </script>
@@ -317,7 +321,7 @@ void main() {
         1.0, log2(16.0), log2(zoom_scale)
     );
     vec2 cs = vec2(textureSize(cells, 0));
-    vec2 cell_uv = mod(cam_uv * cs, vec2(1.0));
+    vec2 cell_uv = mod(cam_uv * cs, 1.0);
     float num_alpha = get_font(
         int(value * 9.0 + 0.5),
         vec4(0.25, 0.25, 0.5, 0.5),
@@ -330,7 +334,7 @@ void main() {
     color = vec4(vec3(value), 1.0);
 
     if (show_ew) {
-        vec4 ew_color = get_ew_color(cam_uv * cs);
+        vec4 ew_color = get_ew_color(mod(cam_uv, 1.0) * cs);
         color.rgb = mix(color.rgb, ew_color.rgb, ew_color.a);
     }
 }

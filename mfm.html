@@ -354,10 +354,8 @@ void main() {
     ) * (1.0 - ew_color.a);
     if (num_visibility > 0.01) {
         vec2 cell_uv = mod(cam_uv * cs, 1.0);
-        float num_alpha = get_font(
-            int(cell_val * 9.0 + 0.5),
-            vec4(0.25, 0.25, 0.5, 0.5),
-            cell_uv
+        float num_alpha = draw_number(
+            int(cell_val * 9.0 + 0.5), vec2(0.5), 0.5, cell_uv
         );
         color.rgb = mix(
             color.rgb,
@@ -633,10 +631,30 @@ ivec2 ew_id_to_xy(int id) {
 <script type="x-shader/x-fragment" id="snip_ew_draw">
 /*<snip_ew_sim>*/
 
-float get_font(int id, vec4 box, vec2 p) {
+float draw_char(int id, vec4 box, vec2 p) {
     vec2 box_uv = clamp((p - box.xy) / box.zw, 0.0, 1.0);
     vec2 char_uv = (box_uv + vec2(float(id), 0.0)) / vec2(10.0, 1.0);
     return texture(font, char_uv).a;
+}
+
+float draw_number(int val, vec2 center, float size, vec2 p) {
+    if (abs(p.y - center.y) * 2.0 > size) { return 0.0; }
+
+    // todo: minus sign
+    int digits = 1; int maxv = 10;
+    while (val >= maxv) { digits++; maxv *= 10; }
+    float width = float(digits) * size;
+    if (abs(p.x - center.x) * 2.0 > width) { return 0.0; }
+
+    vec2 top_right = center + vec2(width * 0.5, -0.5 * size);
+    float digit = floor((top_right.x - p.x) / size);
+    vec4 box = vec4(
+        top_right.x - size * (digit + 1.0),
+        top_right.y,
+        vec2(size)
+    );
+    val /= int(pow(10.0, digit));
+    return draw_char(val % 10, box, p);
 }
 
 vec4 ew_colors[] = vec4[](
@@ -657,22 +675,8 @@ vec4 get_ew_color(vec2 p) {
         float num_visibility = smoothstep(
             1.0, log2(16.0), log2(zoom_scale)
         );
-        float num_alpha = 0.0;
         vec2 cell_uv = mod(p, 1.0);
-        if (id < 10) {
-            num_alpha = get_font(
-                id, vec4(0.35, 0.35, 0.3, 0.3), cell_uv
-            );
-        } else {
-            num_alpha = max(
-                get_font(
-                    id / 10, vec4(0.2, 0.35, 0.3, 0.3), cell_uv
-                ),
-                get_font(
-                    id % 10, vec4(0.5, 0.35, 0.3, 0.3), cell_uv
-                )
-            );
-        }
+        float num_alpha = draw_number(id, vec2(0.5), 0.3, cell_uv);
         color = mix(
             color,
             vec4(vec3(0.0), 1.0),

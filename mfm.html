@@ -396,12 +396,27 @@ void main() {
         );
 
         // average event count per second
-        int ae = int(get_bits(cell.a, 14, 15));
-        float ae_alpha = draw_number(
-            ae, vec2(0.5, 0.9), 0.2, cell_uv
+        float aer_height = 0.18;
+        // text
+        float char_width = aer_height * 0.6;
+        vec2 aer_text_center = vec2(
+            0.5 - float(aer_str_len - 1) * char_width * 0.5,
+            0.9
         );
+        float aer_alpha = draw_str(
+            aer_str, aer_str_len,
+            aer_text_center, aer_height, cell_uv
+        );
+        // number
+        int aer = int(get_bits(cell.a, 14, 15));
+        vec2 aer_num_center = left_align(
+            aer, vec2(0.5 + char_width * 0.5, 0.9), aer_height
+        );
+        aer_alpha = max(aer_alpha, draw_number(
+            aer, aer_num_center, aer_height, cell_uv
+        ));
         color.rgb = mix(
-            color.rgb, num_color, ae_alpha * num_visibility
+            color.rgb, num_color, aer_alpha * num_visibility
         );
     }
 }
@@ -673,30 +688,66 @@ ivec2 ew_id_to_xy(int id) {
 /*<snip_ew_sim>*/
 
 float draw_char(int id, vec4 box, vec2 p) {
+    id -= 32;
     vec2 box_uv = clamp((p - box.xy) / box.zw, 0.0, 1.0);
-    vec2 char_uv = (box_uv + vec2(float(id), 0.0)) / vec2(10.0, 1.0);
+    vec2 offset = vec2(ivec2(id % 10, id / 10));
+    vec2 char_uv = (box_uv + offset) / 10.0;
     return texture(font, char_uv).a;
 }
 
-float draw_number(int val, vec2 center, float size, vec2 p) {
-    if (abs(p.y - center.y) * 2.0 > size) { return 0.0; }
+const int[8] aer_str = int[](65, 69, 82, 58, 0, 0, 0, 0);
+const int aer_str_len = 4;
+
+float draw_str(
+    int[8] str, int len, vec2 center, float height, vec2 p
+) {
+    if (abs(p.y - center.y) * 2.0 > height) { return 0.0; }
+
+    float char_width = height * 0.6;
+    float width = float(len) * char_width;
+    if (abs(p.x - center.x) * 2.0 > width) { return 0.0; }
+
+    vec2 top_left = center - vec2(width * 0.5, 0.5 * height);
+    int idx = int((p.x - top_left.x) / char_width);
+    vec4 box = vec4(
+        top_left.x + char_width * float(idx),
+        top_left.y,
+        vec2(char_width, height)
+    );
+    return draw_char(str[idx], box, p);
+}
+
+float draw_number(int val, vec2 center, float height, vec2 p) {
+    if (abs(p.y - center.y) * 2.0 > height) { return 0.0; }
 
     // todo: minus sign
     float digits = max(1.0, floor(
         log2(float(val)) / log2(10.0) + 1.0
     ));
-    float width = digits * size;
+    float char_width = height * 0.6;
+    float width = digits * char_width;
     if (abs(p.x - center.x) * 2.0 > width) { return 0.0; }
 
-    vec2 top_right = center + vec2(width * 0.5, -0.5 * size);
-    float digit = floor((top_right.x - p.x) / size);
+    vec2 top_right = center + vec2(width * 0.5, -0.5 * height);
+    float digit = floor((top_right.x - p.x) / char_width);
     vec4 box = vec4(
-        top_right.x - size * (digit + 1.0),
+        top_right.x - char_width * (digit + 1.0),
         top_right.y,
-        vec2(size)
+        vec2(char_width, height)
     );
     val /= int(pow(10.0, digit));
-    return draw_char(val % 10, box, p);
+    return draw_char((val % 10) + 48, box, p);
+}
+
+vec2 left_align(int val, vec2 left_mid, float height) {
+    // convert (left, mid) to (mid, mid) for draw_number
+    // todo: minus sign
+    float digits = max(1.0, floor(
+        log2(float(val)) / log2(10.0) + 1.0
+    ));
+    float char_width = height * 0.6;
+    float width = digits * char_width;
+    return left_mid + vec2(width * 0.5, 0.0);
 }
 
 vec4 ew_colors[] = vec4[](
@@ -891,11 +942,19 @@ function load_webgl() {
     // make font texture
     const tc = document.createElement("canvas")
     tc.width = 480
-    tc.height = 60
+    tc.height = 800
     const ctx = tc.getContext("2d")
     ctx.font = "80px Courier New"
     ctx.fillStyle = "white"
-    ctx.fillText("0123456789", 0, 56)
+    ctx.textBaseline = "top"
+    // 10x10 block of chars 32-126
+    for (const [i, row] of [
+        " !\"#$%&\'()", "*+,-./0123", "456789:;<=", ">?@ABCDEFG",
+        "HIJKLMNOPQ", "RSTUVWXYZ[", "\\]^_`abcde", "fghijklmno",
+        "pqrstuvwxy", "z{|}~",
+    ].entries()) {
+        ctx.fillText(row, 0, 80 * i)
+    }
     font_tex = gl.createTexture()
     gl.bindTexture(gl.TEXTURE_2D, font_tex)
     gl.texImage2D(

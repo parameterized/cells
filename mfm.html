@@ -871,7 +871,7 @@ function load_webgl() {
 
     function shimmed(id) {
         let s = source(id)
-        for ([k, v] of Object.entries(snips)) {
+        for (const [k, v] of Object.entries(snips)) {
             s = s.replace(`/*<${k}>*/`, v)
         }
         return s
@@ -903,6 +903,44 @@ function load_webgl() {
     )
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+
+    // AER print loop
+    console.log("(wait for AER to stabilize from random init)")
+    setInterval(() => {
+        read_cells().then(c => {
+            const weight = 1 / grid_size**2
+            let aer = 0
+            for (let i = 3; i < grid_size**2 * 4; i += 4) {
+                // (2**14 - 1) << 15 = 0x1fff8000
+                const avg_events = (c[i] & 0x1fff8000) >> 15
+                aer += avg_events * weight
+            }
+            console.log(`AER: ${aer.toFixed(2)}`)
+        })
+    }, 3000)
+}
+
+async function read_cells() {
+    const framebuf = gl.createFramebuffer()
+    gl.bindFramebuffer(gl.FRAMEBUFFER, framebuf)
+    gl.framebufferTexture2D(
+        gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D,
+        grid_cells[0], 0,
+    )
+
+    const pixels = new Uint32Array(grid_size**2 * 4)
+    await new Promise(resolve => {
+        gl.readPixels(
+            0, 0, grid_size, grid_size,
+            gl.RGBA_INTEGER, gl.UNSIGNED_INT, pixels,
+        )
+        gl.finish()
+        resolve()
+    })
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+    gl.deleteFramebuffer(framebuf)
+    return pixels
 }
 
 function compile_shader(source, type) {

@@ -232,6 +232,7 @@ out uvec4 cell;
 
 uniform usampler2D cells;
 uniform int time_step;
+uniform float time_sec;
 
 /*<snip_ew_sim>*/
 
@@ -243,6 +244,19 @@ void main() {
     int id = ew_coords.w;
     ivec2 center = p - ew_coords.xy;
 
+    // event rate tracking
+    // alpha format (right to left):
+    // 1b: time % 2, 14b: event (center) counter,
+    // 14b: event count moving average
+    uint sec_phase = uint(time_sec) & 1u;
+    if (sec_phase != (cell.a & 1u)) {
+        cell.a = set_bits(cell.a, 15, 0, sec_phase);
+    }
+    if (id == 0) {
+        // todo: use set_bits (for saturation)
+        cell.a += 2u;
+    }
+
     // skip if cell outside window or window center outside world
     if (
         ew_coords.z > 4 || min(center.x, center.y) < 0
@@ -252,8 +266,9 @@ void main() {
     vec3 rng = hash(ivec3(center, time_step));
     int swap_with = int(rng.g * 5.0);
     if (id == swap_with) {
-        cell = texelFetch(cells, center, 0);
+        cell.r = texelFetch(cells, center, 0).r;
         if (id == 0) {
+            // fade to light grey, but keep some visual diversity
             float maxu = float(~0u);
             cell.r = min(
                 cell.r + min(uint(0.005 * maxu), ~0u - cell.r),
@@ -263,7 +278,7 @@ void main() {
     } else if (id == 0) {
         ivec2 sp = p + ew_id_to_xy(swap_with);
         if (min(sp.x, sp.y) >= 0 && sp.x < res.x && sp.y < res.y)
-            cell = texelFetch(cells, sp, 0);
+            cell.r = texelFetch(cells, sp, 0).r;
     }
 }
 </script>
@@ -286,6 +301,8 @@ uniform float brush_size;
 
 void main() {
     ivec2 p = ivec2(gl_FragCoord.xy);
+    cell = texelFetch(cells, p, 0);
+
     vec2 size = vec2(textureSize(cells, 0));
     vec2 uv = vec2(p) / size;
 
@@ -293,15 +310,10 @@ void main() {
         for (int j = -1; j <= 1; ++j) {
             vec2 uv_tile = uv + vec2(i, j);
             if (distance(uv_tile, mouse) < brush_size) {
-                cell = uvec4(
-                    uhash(ivec3(p, time_step)).r / 2u,
-                    uvec3(0u)
-                );
-                return;
+                cell.r = uhash(ivec3(p, time_step)).r / 2u;
             }
         }
     }
-    cell = texelFetch(cells, p, 0);
 }
 </script>
 
@@ -348,22 +360,6 @@ void main() {
         color.rgb = mix(color.rgb, ew_color.rgb, ew_color.a * 0.5);
     }
 
-    // numbers
-    float num_visibility = smoothstep(
-        1.0, log2(16.0), log2(zoom_scale)
-    ) * (1.0 - ew_color.a);
-    if (num_visibility > 0.01) {
-        vec2 cell_uv = mod(cam_uv * cs, 1.0);
-        float num_alpha = draw_number(
-            int(cell_val * 9.0 + 0.5), vec2(0.5), 0.5, cell_uv
-        );
-        color.rgb = mix(
-            color.rgb,
-            mod(color.rgb + 0.5, 1.0),
-            num_alpha * num_visibility
-        );
-    }
-
     // lower contrast in wrapped cells
     if (
         min(cam_uv.x, cam_uv.y) < 0.0
@@ -377,6 +373,32 @@ void main() {
         ping = 0.9 + 0.1 * ping * min(max(d - 2.0, 0.0), 1.0);
         desat *= ping;
         color.rgb = mix(color.rgb, vec3(0.5), desat);
+    }
+
+    // numbers
+    vec2 cell_uv = mod(cam_uv * cs, 1.0);
+    float num_visibility = smoothstep(
+        1.0, log2(16.0), log2(zoom_scale)
+    ) * (1.0 - ew_color.a);
+    if (num_visibility > 0.01) {
+        vec3 num_color = mod(color.rgb + 0.5, 1.0);
+
+        // main number
+        float val_alpha = draw_number(
+            int(cell_val * 9.0 + 0.5), vec2(0.5), 0.5, cell_uv
+        );
+        color.rgb = mix(
+            color.rgb, num_color, val_alpha * num_visibility
+        );
+
+        // action event count
+        int ae_count = int(get_bits(cell.a, 14, 1));
+        float ae_count_alpha = draw_number(
+            ae_count, vec2(0.5, 0.9), 0.2, cell_uv
+        );
+        color.rgb = mix(
+            color.rgb, num_color, ae_count_alpha * num_visibility
+        );
     }
 }
 </script>
@@ -419,6 +441,21 @@ int ceil_div(int x, int k) {
 
 ivec2 modi(ivec2 x, int k) {
     return x - floor_div(x, k) * k;
+}
+
+uint get_bits(uint bits, int size, int skip_size) {
+    // get {size} bits, skipping rightmost {skip_size} bits
+    uint mask = ((1u << size) - 1u) << skip_size;
+    return (bits & mask) >> skip_size;
+}
+
+uint set_bits(uint bits, int size, int skip_size, uint new_bits) {
+    // note: saturates {new_bits} to {size} bits
+    uint mask = (1u << size) - 1u;
+    new_bits = min(new_bits, mask);
+    new_bits <<= skip_size;
+    mask <<= skip_size;
+    return (bits & ~mask) | new_bits;
 }
 </script>
 
@@ -641,9 +678,10 @@ float draw_number(int val, vec2 center, float size, vec2 p) {
     if (abs(p.y - center.y) * 2.0 > size) { return 0.0; }
 
     // todo: minus sign
-    int digits = 1; int maxv = 10;
-    while (val >= maxv) { digits++; maxv *= 10; }
-    float width = float(digits) * size;
+    float digits = max(1.0, floor(
+        log2(float(val)) / log2(10.0) + 1.0
+    ));
+    float width = digits * size;
     if (abs(p.x - center.x) * 2.0 > width) { return 0.0; }
 
     vec2 top_right = center + vec2(width * 0.5, -0.5 * size);
@@ -712,6 +750,10 @@ function sim_step() {
     gl.uniform1i(
         gl.getUniformLocation(sim_program, "time_step"),
         time_step,
+    )
+    gl.uniform1f(
+        gl.getUniformLocation(sim_program, "time_sec"),
+        time_sec,
     )
     gl.enableVertexAttribArray(0)
     gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0)

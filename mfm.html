@@ -111,7 +111,7 @@ const pan = {
 const zoom = {
     scale: 1,
     min_scale: 1,
-    max_scale: 20,
+    max_scale: grid_size / 8,
     vel_factor: 1,
 }
 
@@ -247,14 +247,18 @@ void main() {
     // event rate tracking
     // alpha format (right to left):
     // 1b: time % 2, 14b: event (center) counter,
-    // 14b: event count moving average
+    // 14b: event count/sec moving average
     uint sec_phase = uint(time_sec) & 1u;
+    uint count = get_bits(cell.a, 14, 1);
     if (sec_phase != (cell.a & 1u)) {
+        uint avg = get_bits(cell.a, 14, 15);
+        avg = (avg + count) / 2u;
+        cell.a = set_bits(cell.a, 14, 15, avg);
+        // zero out count and set phase
         cell.a = set_bits(cell.a, 15, 0, sec_phase);
     }
     if (id == 0) {
-        // todo: use set_bits (for saturation)
-        cell.a += 2u;
+        cell.a = set_bits(cell.a, 14, 1, count + 1u);
     }
 
     // skip if cell outside window or window center outside world
@@ -391,13 +395,13 @@ void main() {
             color.rgb, num_color, val_alpha * num_visibility
         );
 
-        // action event count
-        int ae_count = int(get_bits(cell.a, 14, 1));
-        float ae_count_alpha = draw_number(
-            ae_count, vec2(0.5, 0.9), 0.2, cell_uv
+        // average event count per second
+        int ae = int(get_bits(cell.a, 14, 15));
+        float ae_alpha = draw_number(
+            ae, vec2(0.5, 0.9), 0.2, cell_uv
         );
         color.rgb = mix(
-            color.rgb, num_color, ae_count_alpha * num_visibility
+            color.rgb, num_color, ae_alpha * num_visibility
         );
     }
 }

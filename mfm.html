@@ -91,12 +91,13 @@ onmouseleave = e => {
 }
 
 onkeydown = e => {
-    if (e.key === " ") {
-        paused = !paused
-    } else if (e.key === "ArrowRight") {
-        sim_step()
-    } else if (e.key === "f") {
-        show_ew = !show_ew
+    switch (e.key) {
+    case " ": paused = !paused; break
+    case "ArrowRight": sim_step(); break
+    case "f": show_ew = !show_ew; break
+    case "r":
+        init_cells(grid_cells[0], grid_size)
+        break
     }
 }
 </script>
@@ -111,7 +112,7 @@ const pan = {
 const zoom = {
     scale: 1,
     min_scale: 1,
-    max_scale: grid_size / 8,
+    max_scale: grid_size / 4,
     vel_factor: 1,
 }
 
@@ -236,6 +237,19 @@ uniform float time_sec;
 
 /*<snip_ew_sim>*/
 
+/*
+cell format (left to right):
+r: {8b red color}, {8b green}, {8b blue}, {8b alpha}
+g: {8b element type}, {24b elem data}
+b: {32b elem data}
+a: {3b unused}, {14b event count/sec moving average},
+    {14b event center count}, {1b time second % 2}
+*/
+
+const uint type_none = 0u;  // out of bounds
+const uint type_air = 1u;
+const uint type_pink_sand = 2u;
+
 void main() {
     ivec2 p = ivec2(gl_FragCoord.xy);
     ivec2 res = textureSize(cells, 0);
@@ -245,12 +259,10 @@ void main() {
     ivec2 center = p - ew_coords.xy;
 
     // event rate tracking
-    // alpha format (right to left):
-    // 1b: time % 2, 14b: event (center) counter,
-    // 14b: event count/sec moving average
     uint sec_phase = uint(time_sec) & 1u;
     uint count = get_bits(cell.a, 14, 1);
     if (sec_phase != (cell.a & 1u)) {
+        // update avg
         uint avg = get_bits(cell.a, 14, 15);
         avg = (avg + count) / 2u;
         cell.a = set_bits(cell.a, 14, 15, avg);
@@ -258,6 +270,7 @@ void main() {
         cell.a = set_bits(cell.a, 15, 0, sec_phase);
     }
     if (id == 0) {
+        // increment count
         cell.a = set_bits(cell.a, 14, 1, count + 1u);
     }
 
@@ -267,23 +280,53 @@ void main() {
         || center.x >= res.x || center.y >= res.y
     ) { return; }
 
+    uvec4 center_cell = texelFetch(cells, center, 0);
+    uint center_type = ew_type(center, 0);
+
     vec3 rng = hash(ivec3(center, time_step));
-    int swap_with = int(rng.g * 5.0);
-    if (id == swap_with) {
-        cell.r = texelFetch(cells, center, 0).r;
-        if (id == 0) {
-            // fade to light grey, but keep some visual diversity
-            float maxu = float(~0u);
-            cell.r = min(
-                cell.r + min(uint(0.005 * maxu), ~0u - cell.r),
-                uint((0.79 + rng.b * 0.2) * maxu)
-            );
+    switch (center_type) {
+    case type_pink_sand:
+        int swap_with = 0;
+        if (ew_type(center, 3) == type_air) {
+            swap_with = 3;
+        } else {
+            swap_with = rng.r < 0.5 ? 1 : 4;
+            if (ew_type(center, swap_with) != type_air)
+                swap_with = 0;
         }
-    } else if (id == 0) {
-        ivec2 sp = p + ew_id_to_xy(swap_with);
-        if (min(sp.x, sp.y) >= 0 && sp.x < res.x && sp.y < res.y)
-            cell.r = texelFetch(cells, sp, 0).r;
+        if (id == swap_with) {
+            cell.rgb = center_cell.rgb;
+        } else if (id == 0) {
+            ivec2 sp = center + ew_id_to_xy(swap_with);
+            cell.rgb = texelFetch(cells, sp, 0).rgb;
+        }
+        break;
     }
+
+    // note: cell can be modified before here, avoid resampling
+    uint cell_type = get_bits(cell.g, 8, 24);
+    ivec4 target_color = ivec4(0);
+    switch (cell_type) {
+    case type_pink_sand:
+        target_color = ivec4(255, 129, 193, 255);
+        break;
+    }
+
+    // move towards target color
+    vec4 color = vec4(uvec4(
+        get_bits(cell.r, 8, 24),
+        get_bits(cell.r, 8, 16),
+        get_bits(cell.r, 8, 8),
+        get_bits(cell.r, 8, 0)
+    )) + 0.5;
+    color = mix(color, vec4(target_color) + 0.5, 0.03);
+    cell.r = set_bits(cell.r, 8, 24, uint(color.r));
+    cell.r = set_bits(cell.r, 8, 16, uint(color.g));
+    cell.r = set_bits(cell.r, 8, 8, uint(color.b));
+    cell.r = set_bits(cell.r, 8, 0, uint(color.a));
+
+    // make random type become an implemented one (skipping none)
+    cell.g = set_bits(cell.g, 8, 24, (cell_type - 1u) % 2u + 1u);
 }
 </script>
 
@@ -314,7 +357,7 @@ void main() {
         for (int j = -1; j <= 1; ++j) {
             vec2 uv_tile = uv + vec2(i, j);
             if (distance(uv_tile, mouse) < brush_size) {
-                cell.r = uhash(ivec3(p, time_step)).r / 2u;
+                cell.rgb = uhash(ivec3(p, time_step)).rgb;
             }
         }
     }
@@ -354,14 +397,19 @@ void main() {
     vec2 cs = vec2(textureSize(cells, 0));
     uvec4 cell = texture(cells, mod(cam_uv, 1.0));
 
-    float cell_val = float(cell.r) * (1.0 / float(~0u));
-    color = vec4(vec3(cell_val), 1.0);
+    color = vec4(uvec4(
+        get_bits(cell.r, 8, 24),
+        get_bits(cell.r, 8, 16),
+        get_bits(cell.r, 8, 8),
+        get_bits(cell.r, 8, 0)
+    )) / 255.0;
 
     // event windows
     vec4 ew_color = vec4(0.0);
     if (show_ew) {
         ew_color = get_ew_color(mod(cam_uv, 1.0) * cs);
         color.rgb = mix(color.rgb, ew_color.rgb, ew_color.a * 0.5);
+        color.a = max(color.a, ew_color.a);
     }
 
     // lower contrast in wrapped cells
@@ -376,47 +424,50 @@ void main() {
         float ping = sin(d * 10.0 - time_sec * 5.0);
         ping = 0.9 + 0.1 * ping * min(max(d - 2.0, 0.0), 1.0);
         desat *= ping;
-        color.rgb = mix(color.rgb, vec3(0.5), desat);
+        color = mix(color, vec4(0.5), desat);
     }
 
-    // numbers
+    // text
     vec2 cell_uv = mod(cam_uv * cs, 1.0);
-    float num_visibility = smoothstep(
-        1.0, log2(16.0), log2(zoom_scale)
+    float text_visibility = smoothstep(
+        3.0, 5.0, log2(zoom_scale)
     ) * (1.0 - ew_color.a);
-    if (num_visibility > 0.01) {
-        vec3 num_color = mod(color.rgb + 0.5, 1.0);
+    if (text_visibility > 0.001) {
+        vec4 text_color = vec4(mod(color.rgb + 0.6, 1.0), 0.0);
 
-        // main number
-        float val_alpha = draw_number(
-            int(cell_val * 9.0 + 0.5), vec2(0.5), 0.5, cell_uv
-        );
-        color.rgb = mix(
-            color.rgb, num_color, val_alpha * num_visibility
-        );
+        // element type
+        // label
+        text_color.a = max(text_color.a, draw_str(
+            elem_str, elem_str_len, vec2(0.5, 0.15), 0.18, cell_uv
+        ));
+        // number
+        uint type = ew_type(ivec2(mod(cam_uv, 1.0) * cs), 0);
+        text_color.a = max(text_color.a, draw_number(
+            int(type), vec2(0.5), 0.5, cell_uv
+        ));
 
         // average event count per second
-        float aer_height = 0.18;
-        // text
-        float char_width = aer_height * 0.6;
-        vec2 aer_text_center = vec2(
-            0.5 - float(aer_str_len - 1) * char_width * 0.5,
-            0.9
-        );
-        float aer_alpha = draw_str(
-            aer_str, aer_str_len,
-            aer_text_center, aer_height, cell_uv
-        );
+        // label
+        float height = 0.18;
+        float char_width = height * 0.6;
+        text_color.a = max(text_color.a, draw_str(
+            aer_str, aer_str_len, vec2(
+                0.5 - float(aer_str_len - 1) * char_width * 0.5,
+                0.85
+            ), height, cell_uv
+        ));
         // number
         int aer = int(get_bits(cell.a, 14, 15));
         vec2 aer_num_center = left_align(
-            aer, vec2(0.5 + char_width * 0.5, 0.9), aer_height
+            aer, vec2(0.5 + char_width * 0.5, 0.85), height
         );
-        aer_alpha = max(aer_alpha, draw_number(
-            aer, aer_num_center, aer_height, cell_uv
+        text_color.a = max(text_color.a, draw_number(
+            aer, aer_num_center, height, cell_uv
         ));
-        color.rgb = mix(
-            color.rgb, num_color, aer_alpha * num_visibility
+
+        // apply text color
+        color = mix(
+            color, text_color, text_color.a * text_visibility
         );
     }
 }
@@ -662,7 +713,7 @@ ivec4 get_ew_coords(ivec2 p) {
     ivec2 c = p - p_rel_ew.xy;
     ivec2 res = textureSize(cells, 0);
     if (min(c.x, c.y) < 0 || c.x >= res.x || c.y >= res.y)
-        p_rel_ew.z = 9;
+        p_rel_ew.z = 99;
 
     return p_rel_ew;
 }
@@ -681,6 +732,15 @@ ivec2 ew_id_to_xy(int id) {
         return ivec2(1, 0);
     }
 }
+
+uint ew_type(ivec2 center, int id) {
+    ivec2 res = textureSize(cells, 0);
+    ivec2 p = center + ew_id_to_xy(id);
+    if (min(p.x, p.y) < 0 || p.x >= res.x || p.y >= res.y)
+        return 0u;
+
+    return get_bits(texelFetch(cells, p, 0).g, 8, 24);
+}
 </script>
 
 
@@ -697,6 +757,8 @@ float draw_char(int id, vec4 box, vec2 p) {
 
 const int[8] aer_str = int[](65, 69, 82, 58, 0, 0, 0, 0);
 const int aer_str_len = 4;
+const int[8] elem_str = int[](101, 108, 101, 109, 0, 0, 0, 0);
+const int elem_str_len = 4;
 
 float draw_str(
     int[8] str, int len, vec2 center, float height, vec2 p
@@ -766,7 +828,7 @@ vec4 get_ew_color(vec2 p) {
     if (d <= 4) {
         color = ew_colors[d];
         float num_visibility = smoothstep(
-            1.0, log2(16.0), log2(zoom_scale)
+            3.0, 5.0, log2(zoom_scale)
         );
         vec2 cell_uv = mod(p, 1.0);
         float num_alpha = draw_number(id, vec2(0.5), 0.3, cell_uv);
@@ -1029,14 +1091,7 @@ function create_program(vert_source, frag_source) {
 
 function new_cells(size) {
     const tex = gl.createTexture()
-    gl.bindTexture(gl.TEXTURE_2D, tex)
-    const pixels = new Uint32Array(size * size * 4).map(
-        () => (Math.random() * 0.5 - 0.5) * 2**32
-    )
-    gl.texImage2D(
-        gl.TEXTURE_2D, 0, gl.RGBA32UI, size, size, 0,
-        gl.RGBA_INTEGER, gl.UNSIGNED_INT, pixels,
-    )
+    init_cells(tex, size)
     gl.texParameteri(
         gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST,
     )
@@ -1045,6 +1100,17 @@ function new_cells(size) {
     )
 
     return tex
+}
+
+function init_cells(tex, size) {
+    gl.bindTexture(gl.TEXTURE_2D, tex)
+    const pixels = new Uint32Array(size * size * 4).map(
+        () => Math.random() * 2**32
+    )
+    gl.texImage2D(
+        gl.TEXTURE_2D, 0, gl.RGBA32UI, size, size, 0,
+        gl.RGBA_INTEGER, gl.UNSIGNED_INT, pixels,
+    )
 }
 </script>
 

@@ -424,7 +424,7 @@ void main() {
         float ping = sin(d * 10.0 - time_sec * 5.0);
         ping = 0.9 + 0.1 * ping * min(max(d - 2.0, 0.0), 1.0);
         desat *= ping;
-        color = mix(color, vec4(0.5), desat);
+        color.rgb = mix(color.rgb, vec3(0.5), desat);
     }
 
     // text
@@ -466,10 +466,16 @@ void main() {
         ));
 
         // apply text color
-        color = mix(
-            color, text_color, text_color.a * text_visibility
-        );
+        text_color.a *= text_visibility;
+        float new_alpha = mix(color.a, 1.0, text_color.a);
+        color.rgb = mix(
+            color.rgb * color.a, text_color.rgb, text_color.a
+        ) / new_alpha;
+        color.a = new_alpha;
     }
+
+    // canavs assumes output has premultiplied alpha by default
+    color.rgb *= color.a;
 }
 </script>
 

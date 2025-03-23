@@ -4,14 +4,12 @@
 <title>mfm</title>
 <link rel="icon" type="image/png" href="img/SelfImage.png" />
 </head>
-<body style="margin: 0; overflow: hidden; background-color: #222">
-<canvas style="display: block"></canvas>
+<body style="margin: 0; background-color: #222">
+<canvas id="gl_canvas" style="position: absolute"></canvas>
+<canvas id="2d_canvas" style="position: absolute"></canvas>
 
 <script id="main">
 const grid_size = 256
-const time_zero = performance.now()
-let time_sec = 0
-let time_step = 0
 
 onload = function() {
     load_webgl()
@@ -19,32 +17,161 @@ onload = function() {
 }
 
 function loop() {
-    time_sec = (performance.now() - time_zero) / 1000
     fix_size()
+    update_timing()
     update_cam()
 
-    if (mouse_held(0)) {
-        interact()
-    }
-    if (!paused) {
-        for (let i=0; i < steps_per_frame; i++)
+    if (mouse_held(0)) interact()
+    const t = timing
+    if (!t.paused) {
+        for (let i=0; i < t.steps_per_frame; i++)
         { sim_step() }
     }
     draw()
+    if (show_debug) draw_debug()
 
     mouse.px = mouse.x
     mouse.py = mouse.y
 
+    t.frame++
     requestAnimationFrame(loop)
 }
 </script>
 
 
+<script id="math">
+const floor = Math.floor
+const round = Math.round
+const sqrt = Math.sqrt
+const log2 = Math.log2
+const log = Math.log
+const exp = Math.exp
+const pow = Math.pow
+const abs = Math.abs
+const min = Math.min
+const max = Math.max
+const sin = Math.sin
+const cos = Math.cos
+
+const pi = Math.PI
+const tau = 2 * pi
+
+const rand = Math.random
+function randn(mean=0, std=1, std_clip) {
+    // box-muller transform
+    // if std_clip given, and outside +/- mean * std * std_clip,
+    // then we uniformly resample to that
+    // (1 - rand() is to avoid log(0))
+    const z = sqrt(-2 * log(1 - rand())) * cos(tau * rand())
+    const x = mean + std * z
+    if (std_clip === undefined) return x
+
+    const clip = std * std_clip
+    if (x >= -clip && x < clip) return x
+    return mean - clip + rand() * 2 * clip
+}
+
+function clamp(x, a, b) {
+    return min(max(x, a), b)
+}
+function lerp(a, b, t) {
+    return a * (1 - t) + b * t
+}
+function inv_lerp(a, b, x) {
+    if (b - a === 0) return 0 
+    return (x - a) / (b - a)
+}
+function clamped_lerp(a, b, t, f) {
+    // lerp from a, but dont change more than by a factor of f (> 1)
+    return clamp(lerp(a, b, t), a / f, a * f)
+}
+function mod(x, n) {
+    return ((x % n) + n) % n
+}
+</script>
+
+
+<script id="timing">
+const now = () => performance.now()
+const timing = {
+    paused: false,
+    zero: now(),
+    sec: 0,
+    frame: 0,
+    step: 0,
+    last_frame_start: -16,
+    fps: 60,
+    fps_slow: 60,
+    fps_everysec: 60,
+    fps_hist: [],
+
+    base_steps_per_frame: 10,
+    adaptive: true,
+    steps_per_frame: 10,
+    spf_everysec: 10,
+    spf_hist: [],
+    spf_accel: 0.002,
+    fourier_hist: [],
+}
+
+setInterval(() => {
+    const t = timing
+    t.fps_everysec = t.fps
+    t.spf_everysec = t.steps_per_frame
+}, 1000)
+
+function update_timing() {
+    const frame_start = now()
+    const t = timing
+    t.sec = (frame_start - t.zero) / 1000
+
+    // update fps
+    const last_fps = 1000 / (frame_start - t.last_frame_start)
+    t.last_frame_start = frame_start
+    t.fps = clamped_lerp(t.fps, last_fps, 0.5, 1.2)
+    t.fps_slow = clamped_lerp(t.fps_slow, t.fps, 0.02, 1.2)
+    t.fps_hist.push(t.fps)
+    if (t.fps_hist.length > 400) t.fps_hist.shift()
+    // cyclic fps history for debug view
+    const a = t.frame / 60 * tau
+    t.fourier_hist.push([t.fps * cos(a), t.fps * sin(a)])
+    if (t.fourier_hist.length > 100) t.fourier_hist.shift()
+
+    // update steps/frame
+    if (t.adaptive && !t.paused) {
+        // increase while slow/fast fps moving averages agree
+        // decrease if they differ more than 10%
+        const err = 1 - min(t.fps / t.fps_slow, t.fps_slow / t.fps)
+        // increase spf acceleration while err < 10%
+        t.spf_accel = lerp(
+            t.spf_accel,
+            max(0.10 - err, 0) * 0.02,
+            0.01,
+        )
+        t.base_steps_per_frame = max(t.base_steps_per_frame * exp(
+            t.spf_accel
+            // 10x stronger proportional decrease while err > 10%
+            + min(0.10 - err, 0) * 0.2
+        ), 1)
+
+        // scale spf with a wave, peaking every 60 frames
+        // (to make occasional detectable frame time increases)
+        t.steps_per_frame = max(t.base_steps_per_frame * exp(
+            0.15 * sin(t.frame / 60 * tau)
+        ), 1)
+    } else {
+        t.steps_per_frame = t.base_steps_per_frame
+    }
+    t.spf_hist.push(t.steps_per_frame)
+    if (t.spf_hist.length > 400) t.spf_hist.shift()
+}
+</script>
+
+
 <script id="controls">
-let paused = false
-let steps_per_frame = 200
 let show_ew = false
 let solid_colors = false
+let show_debug = false
 
 const brush = {
     get_size: () => 0.05 / zoom.scale,
@@ -98,12 +225,19 @@ onmouseleave = e => {
 }
 
 onkeydown = e => {
+    const t = timing
     switch (e.key) {
-        case " ": paused = !paused; break
+        case " ": t.paused = !t.paused; break
         case "ArrowRight": sim_step(); break
         case "w": show_ew = !show_ew; break
         case "s": solid_colors = !solid_colors; break
         case "e": brush.erase = true; break
+        case "d":
+            show_debug = !show_debug
+            ctx.clearRect(
+                0, 0, canvases.ctx.width, canvases.ctx.height
+            )
+            break
         case "r":
             init_cells(grid_cells[0], grid_size)
             break
@@ -201,25 +335,80 @@ function update_cam() {
         pan.yv *= 0.9
     }
 }
+</script>
 
-const log2 = Math.log2
-const exp = Math.exp
-const pow = Math.pow
-const abs = Math.abs
-const min = Math.min
-const max = Math.max
-function clamp(x, a, b) {
-    return min(max(x, a), b)
-}
-function lerp(a, b, t) {
-    return a * (1 - t) + b * t
-}
-function inv_lerp(a, b, x) {
-    if (b - a === 0) return 0 
-    return (x - a) / (b - a)
-}
-function mod(x, n) {
-    return ((x % n) + n) % n
+
+<script id="debug">
+function draw_debug() {
+    // clear
+    const [w, h] = [canvases.ctx.width, canvases.ctx.height]
+    ctx.clearRect(0, 0, w, h)
+    const t = timing
+
+    // bg
+    ctx.fillStyle = "rgba(0 0 0 / 50%)"
+    ctx.fillRect(0, 0, 600, 200)
+
+    // lines
+    ctx.lineCap = "round"
+    ctx.lineWidth = 3
+    // fps
+    ctx.strokeStyle = "lightgreen"
+    ctx.beginPath()
+    for (let i=0; i < t.fps_hist.length; i++) {
+        const y = 200 - t.fps_hist[i] * 0.8
+        if (i > 0) ctx.lineTo(i, y)
+        ctx.moveTo(i, y)
+    }
+    ctx.stroke()
+    // spf
+    ctx.strokeStyle = "lightblue"
+    ctx.beginPath()
+    for (let i=0; i < t.spf_hist.length; i++) {
+        const y = 200 - t.spf_hist[i] / 10
+        if (i > 0) ctx.lineTo(i, y)
+        ctx.moveTo(i, y)
+    }
+    ctx.stroke()
+
+    // slow fps circle
+    ctx.strokeStyle = "white"
+    ctx.fillStyle = "green"
+    ctx.beginPath()
+    const fps_slow_y = 200 - t.fps_slow * 0.8
+    ctx.arc(t.fps_hist.length, fps_slow_y, 3, 0, tau)
+    ctx.stroke()
+    ctx.fill()
+
+    // fps fourier cycles
+    ctx.globalAlpha = 0.2
+    ctx.strokeStyle = "lightgreen"
+    const [cx, cy] = [500, 120]
+    ctx.beginPath()
+    for (let i=0; i < t.fourier_hist.length; i++) {
+        const [fx, fy] = t.fourier_hist[i]
+        const x = cx + fx * 0.8
+        const y = cy + fy * 0.8
+        if (i === 0) {
+            ctx.moveTo(x, y)
+            continue
+        }
+        ctx.lineTo(x, y)
+        ctx.stroke()
+        ctx.beginPath()
+        ctx.moveTo(x, y)
+    }
+    ctx.globalAlpha = 1
+
+    // text
+    ctx.font = "32px Courier New"
+    ctx.textBaseline = "top"
+    // fps
+    ctx.fillStyle = "lightgreen"
+    ctx.fillText(`fps: ${round(t.fps_everysec)}`, 10, 10)
+    // spf
+    ctx.fillStyle = "lightblue"
+    ctx.fillText(`steps/frame: ${round(t.spf_everysec)}`, 180, 10)
 }
 </script>
 
@@ -991,14 +1180,13 @@ vec4 get_ew_color(vec2 p) {
 
 <script id="webgl_loop">
 function fix_size() {
-    if (
-        canvas.width !== innerWidth
-        || canvas.height !== innerHeight
-    ) {
-        canvas.width = innerWidth
-        canvas.height = innerHeight
+    for (const [_, v] of Object.entries(canvases)) {
+        if (v.width !== innerWidth || v.height !== innerHeight) {
+            v.width = innerWidth
+            v.height = innerHeight
+        }
     }
-    gl.viewport(0, 0, canvas.width, canvas.height)
+    gl.viewport(0, 0, innerWidth, innerHeight)
 }
 
 function sim_step() {
@@ -1018,15 +1206,15 @@ function sim_step() {
     gl.bindTexture(gl.TEXTURE_2D, grid_cells[0])
     u1i("cells", 0)
 
-    u1i("time_step", time_step)
-    u1f("time_sec", time_sec)
+    u1i("time_step", timing.step)
+    u1f("time_sec", timing.sec)
     u1i("solid_colors", solid_colors)
 
     gl.enableVertexAttribArray(0)
     gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0)
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
     grid_cells = [grid_cells[1], grid_cells[0]]
-    time_step++
+    timing.step++
 }
 
 function interact() {
@@ -1057,7 +1245,7 @@ function interact() {
     gl.bindTexture(gl.TEXTURE_2D, grid_cells[0])
     u1i("cells", 0)
 
-    u1i("time_step", time_step)
+    u1i("time_step", timing.step)
     gl.uniform2f(
         gl.getUniformLocation(interact_program, "mouse"),
         mx, my,
@@ -1092,11 +1280,11 @@ function draw() {
     u1i("cells", 0)
     u1i("font", 1)
 
-    u2f("screen_size", canvas.width, canvas.height)
+    u2f("screen_size", canvases.gl.width, canvases.gl.height)
     u1f("zoom_scale", zoom.scale)
     u2f("offset", -pan.x, -pan.y)
-    u1i("time_step", time_step)
-    u1f("time_sec", time_sec)
+    u1i("time_step", timing.step)
+    u1f("time_sec", timing.sec)
     u1i("show_ew", show_ew)
 
     gl.enableVertexAttribArray(0)
@@ -1107,10 +1295,16 @@ function draw() {
 
 
 <script id="webgl_setup">
-const canvas = document.querySelector("canvas")
-canvas.width = innerWidth
-canvas.height = innerHeight
-const gl = canvas.getContext("webgl2")
+const canvases = {
+    gl: document.getElementById("gl_canvas"),
+    ctx: document.getElementById("2d_canvas")
+}
+for (const [_, v] of Object.entries(canvases)) {
+    v.width = innerWidth
+    v.height = innerHeight
+}
+const gl = canvases.gl.getContext("webgl2")
+const ctx = canvases.ctx.getContext("2d")
 
 const vertices = new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1])
 const buffer = gl.createBuffer()
@@ -1260,7 +1454,7 @@ function new_cells(size) {
 function init_cells(tex, size) {
     gl.bindTexture(gl.TEXTURE_2D, tex)
     const pixels = new Uint32Array(size * size * 4).map(
-        () => Math.random() * 2**32
+        () => rand() * 2**32
     )
     gl.texImage2D(
         gl.TEXTURE_2D, 0, gl.RGBA32UI, size, size, 0,
